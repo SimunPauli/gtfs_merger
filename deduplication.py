@@ -1,0 +1,236 @@
+def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identity_cols: List[str],
+                     foreign_keys: List[Tuple[str, str]]) -> int:
+    df_primary = getattr(feed, primary_table, None)
+    if df_primary is None or df_primary.empty:
+        raise ValueError(f"Error: {primary_table} not found in feed")
+
+    initial_count = len(df_primary)
+
+    # Filter identity_cols to those present in the dataframe
+    use_identity_cols = [c for c in identity_cols if c in df_primary.columns and c != id_col]
+
+    if not use_identity_cols:
+        raise ValueError(f"No identity columns found for {primary_table}")
+
+    if primary_table in ["shapes", "stop_times"]:
+        if primary_table == "shapes":
+            sequence_cols = "shape_pt_sequence"
+        if primary_table == "stop_times":
+            sequence_cols = "stop_sequence"
+
+        df_primary[id_col] = (
+                df_primary['feed_id'].astype(str)
+                .str.replace("GTFS_", "", regex=False)
+                .str.replace(".zip", "", regex=False)
+                + "_"
+                + df_primary[id_col]
+        )
+        # For sequence tables: create signature from all rows grouped by ID
+        df_primary = df_primary.sort_values([id_col, sequence_cols])
+
+        # Create row-level signature by concatenating identity columns
+        df_primary['_row_sig'] = pd.util.hash_pandas_object(
+            df_primary[use_identity_cols],
+            index=False
+        )
+
+        # Group and concatenate row signatures into single signature per ID
+        signatures = (
+            df_primary
+            .groupby(id_col)["_row_sig"]
+            .apply(tuple)
+            .map(hash)
+            .rename("_signature")
+            .reset_index()
+        )
+        df_primary.drop(columns=["_row_sig"], inplace=True)
+        # Map signature to canonical (minimum) ID
+        canonical_map = (
+            signatures
+            .groupby('_signature')[id_col]
+            .min()
+        )
+
+        # Create ID to canonical ID mapping. For foreign key
+        id_to_canonical = (
+            signatures
+            .set_index(id_col)['_signature']
+            .map(canonical_map)
+        )
+
+        # Get set of canonical IDs
+        canonical_ids = canonical_map.values
+
+        # Update primary table: keep only rows with canonical IDs
+        df_primary = (
+            df_primary[df_primary[id_col].isin(canonical_ids)]
+            .reset_index(drop=True)
+            .drop_duplicates(subset=use_identity_cols + [id_col], keep="first")
+        )
+        setattr(feed, primary_table, df_primary)
+
+    elif primary_table == "trips":
+        df_primary['trip_id'] = (
+                df_primary['feed_id'].astype(str)
+                .str.replace("GTFS_", "", regex=False)
+                .str.replace(".zip", "", regex=False)
+                + "_"
+                + df_primary[id_col]
+        )
+        df_st = feed.stop_times.sort_values(["trip_id", "stop_sequence"])
+        inital_count_st = len(df_st)
+        df_st['trip_id'] = (
+                df_st['feed_id'].astype(str)
+                .str.replace("GTFS_", "", regex=False)
+                .str.replace(".zip", "", regex=False)
+                + "_"
+                + df_st[id_col]
+        )
+
+        df_st['_row_sig'] = pd.util.hash_pandas_object(
+            df_st[["stop_id", "arrival_time", "departure_time"]],
+            index=False
+        )
+
+        pattern = (
+            df_st.groupby("trip_id")["_row_sig"]
+            .apply(tuple)
+            .map(hash)
+            .rename("_stop_times_sig")
+        )
+        df_st = df_st.drop(columns=["_row_sig"])  # save memory
+        df_primary["_stop_times_sig"] = df_primary["trip_id"].map(pattern)
+
+        df_primary["trip_sig"] = pd.util.hash_pandas_object(
+            df_primary[["route_id", "service_id", "direction_id", "shape_id", "_stop_times_sig"]],
+            index=False
+        )
+
+        canonical = (
+            df_primary
+            .groupby("trip_sig")["trip_id"]
+            .min()
+        )
+
+        trip_map = (
+            df_primary.set_index("trip_id")["trip_sig"]
+            .map(canonical)
+        )
+
+        df_primary["trip_id"] = df_primary["trip_id"].map(trip_map).fillna(df_primary["trip_id"])
+        df_st["trip_id"] = df_st["trip_id"].map(trip_map).fillna(df_st["trip_id"])
+
+        df_primary = df_primary.drop_duplicates("trip_id")
+
+        df_st = (
+            df_st
+            .sort_values(["trip_id", "stop_sequence"])
+            .drop_duplicates(["trip_id", "stop_sequence"])
+        )
+        df_primary = (
+            df_primary
+            .sort_values(["trip_id"])
+            .drop_duplicates(["trip_id"])
+            .drop(columns=["_stop_times_sig", "trip_sig"], errors="ignore")
+        )
+
+        df_primary = df_primary.drop(columns=["_stop_times_sig", "trip_sig"], errors="ignore")
+
+        feed.trips = df_primary.reset_index(drop=True)
+        feed.stop_times = df_st.reset_index(drop=True)
+
+        final_count = len(df_primary)
+        duplicates_removed = initial_count - final_count
+        print(f"  stop_times: removed {inital_count_st - len(df_st)} duplicates, {len(df_st)} remaining")
+        return duplicates_removed  # don't run foreign key loop has it has been done manually for trips (and stop_times)
+
+    elif primary_table == "stops":  # coordinate of stops sometimes changes a little bit. I've been told they keep stop_id consistent (!) and only change it when it is moved more than 40 m. The "within 40m=stop_id" is not consistent.
+        # df_primary = df_primary.sort_values(id_col)
+
+        lat_threshold = 0.0003592535
+        lon_threshold = 0.00064109755
+
+        max_lat_delta = (
+            df_primary.groupby("stop_id")["stop_lat"]
+            .transform(lambda x: (x.mean() - x).abs().max())  # stop distance from average coordinate
+        )
+        max_lon_delta = (
+            df_primary.groupby("stop_id")["stop_lon"]
+            .transform(lambda x: (x.mean() - x).abs().max())
+        )
+        df_primary["stable_loc"] = (max_lat_delta < lat_threshold) & (
+                    max_lon_delta < lon_threshold)  # ~40m (~56.6m in diagonal movement) at 56N
+
+        stable_means = (
+            df_primary.loc[df_primary["stable_loc"]]
+            .groupby("stop_id", as_index=True)[["stop_lat", "stop_lon"]]
+            .mean()
+        )
+
+        # write back means only for stable rows
+        stable_mask = df_primary["stable_loc"]
+        df_primary.loc[stable_mask, "stop_lat"] = df_primary.loc[stable_mask, "stop_id"].map(stable_means["stop_lat"])
+        df_primary.loc[stable_mask, "stop_lon"] = df_primary.loc[stable_mask, "stop_id"].map(stable_means["stop_lon"])
+
+        # warning flags
+        if (~df_primary['stable_loc']).any():
+            print(
+                "Warning:", (~df_primary['stable_loc']).sum(), "stop_id with max delta lat/lon above 40m threshold:\n",
+                df_primary.loc[df_primary['stable_loc'], ["stop_id"]].drop_duplicates(),
+                "\nDuplicated stop_id with lat/lon differences > 40, will get new stop_id."
+            )
+
+        # drop duplicates with same stop_id/_lat/_lon. lat/lon has been average by stop_id if within 40m. Duplicated stop_id with delta lat/lon, will get new stop_id below.
+        df_primary = df_primary.drop_duplicates(subset=["stop_id", "stop_lat", "stop_lon"], inplace=False)
+
+        feed.stops = df_primary.reset_index(drop=True)
+        final_count = len(df_primary)
+        duplicates_removed = initial_count - final_count
+        return duplicates_removed
+
+
+    else:
+        # For simple tables: group by identity columns directly
+        # df_primary = df_primary.sort_values(id_col)
+
+        # Map each unique combination of identity cols to canonical (minimum) ID
+        canonical_df = (
+            df_primary
+            .groupby(use_identity_cols, dropna=False)[id_col]
+            .min()
+            .reset_index()
+        )
+
+        # Create mapping from all IDs to canonical IDs
+        id_to_canonical = (
+            df_primary[[id_col] + use_identity_cols]
+            .merge(canonical_df, on=use_identity_cols, suffixes=('', '_canonical'))
+            .drop_duplicates(subset=[id_col, f'{id_col}_canonical'])
+            .set_index(id_col)[f'{id_col}_canonical']
+        )  # For foreign key #For foreign key
+
+        # Update primary table: keep only canonical rows
+        canonical_ids = canonical_df[id_col]
+
+        df_primary = (
+            df_primary[df_primary[id_col].isin(canonical_ids)]
+            .reset_index(drop=True)
+            .drop_duplicates(subset=use_identity_cols + [id_col], keep="first")
+        )
+        setattr(feed, primary_table, df_primary)
+
+    # Update all foreign key references
+    for fk_table, fk_col in foreign_keys:
+        fk_df = getattr(feed, fk_table, None)
+        if fk_df is None or fk_col not in fk_df.columns:
+            warnings.warn(f"Warning: Foreign key column {fk_col} not found in {fk_table}. Skipping foreign key update.")
+            continue
+
+        # Map foreign keys to canonical IDs
+        fk_df[fk_col] = fk_df[fk_col].map(id_to_canonical).fillna(fk_df[fk_col])
+        setattr(feed, fk_table, fk_df)
+
+    final_count = len(getattr(feed, primary_table))
+    duplicates_removed = initial_count - final_count
+
+    return duplicates_removed
