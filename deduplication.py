@@ -151,57 +151,57 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         return duplicates_removed  # don't run foreign key loop has it has been done manually for trips (and stop_times)
 
     elif primary_table == "calendar": #Should run after deduplicating of routes, but before trips (and stop_times)
-        # df_primary['service_id'] = (
-        #         df_primary['feed_id'].astype(str)
-        #         .str.replace("GTFS_", "", regex=False)
-        #         .str.replace(".zip", "", regex=False)
-        #         + "_"
-        #         + df_primary['service_id']
-        # )
         df_trips = feed.trips.copy()
-        # df_trips['service_id'] = (
-        #         df_trips['feed_id'].astype(str)
-        #         .str.replace("GTFS_", "", regex=False)
-        #         .str.replace(".zip", "", regex=False)
-        #         + "_"
-        #         + df_trips['service_id']
-        # )
-        df_trips['trip_sig'] = pd.util.hash_pandas_object(
-            df_trips[["route_id", "trip_headsign", "trip_short_name", "direction_id"]],
+
+        # The goal is to shorten stop_times as it is a very large file,
+        # while calendar is small file. Therefor stop_times signiture
+        # is joined with calendar.
+        df_st = feed.stop_times.sort_values(["trip_id", "stop_sequence"])
+        df_st['_row_sig'] = pd.util.hash_pandas_object(
+            df_st[["stop_id", "arrival_time", "departure_time"]],
             index=False
         )
 
-        df_primary = df_primary.merge(
-            df_trips[['service_id', 'trip_sig']],
-            how='left',
-            on='service_id',
+        pattern_st = (
+            df_st
+            .groupby("trip_id")["_row_sig"]
+            .agg(lambda x: pd.util.hash_pandas_object(x, index=False).sum())
         )
+
+        df_trips["_stop_times_sig"] = df_trips["trip_id"].map(pattern_st)
+        del df_st, pattern_st # save memory
+
+        df_trips['trip_sig'] = pd.util.hash_pandas_object(
+            df_trips[["route_id", "trip_headsign", "trip_short_name", "direction_id", "_stop_times_sig"]],
+            index=False
+        )
+        pattern_trips = (
+            df_trips
+            .groupby("service_id")["trip_sig"]
+            .agg(lambda x: pd.util.hash_pandas_object(x, index=False).sum())
+        )
+
+        df_primary["_service_sig"] = df_primary["service_id"].map(pattern_trips)
+
         del df_trips
 
         # Map each unique combination of identity cols to canonical (minimum) ID
-        canonical_df = (
+        df_primary["service_id_canonical"] = (
             df_primary
-            .groupby(use_identity_cols + ['trip_sig'], dropna=False)[id_col]
-            .min()
-            .reset_index()
+            .groupby(use_identity_cols + ['_service_sig'], dropna=False)["service_id"]
+            .transform('min')
         )
 
-        # Create mapping from all IDs to canonical IDs
-        id_to_canonical = (
-            df_primary[[id_col] + use_identity_cols]
-            .merge(canonical_df, on=use_identity_cols, suffixes=('', '_canonical'))
-            .drop_duplicates(subset=[id_col, f'{id_col}_canonical'])
-            .set_index(id_col)[f'{id_col}_canonical']
-        )  # For foreign key #For foreign key
-
-        # Update primary table: keep only canonical rows
-        canonical_ids = canonical_df[id_col]
+        id_to_canonical = df_primary.set_index("service_id")["service_id_canonical"] # For foreign key
 
         df_primary = (
-            df_primary[df_primary[id_col].isin(canonical_ids)]
+            df_primary[
+                df_primary["service_id"] == df_primary["service_id_canonical"]
+                ]
+            .drop(columns=["service_id_canonical"])
             .reset_index(drop=True)
-            .drop_duplicates(subset=use_identity_cols + [id_col], keep="first")
         )
+        setattr(feed, primary_table, df_primary)
 
     elif primary_table == "stops":  # coordinate of stops sometimes changes a little bit. I've been told they keep stop_id consistent (!) and only change it when it is moved more than 40 m. The "within 40m=stop_id" is not consistent.
         # df_primary = df_primary.sort_values(id_col)

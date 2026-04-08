@@ -35,6 +35,7 @@ ID_CONFIG = {
             ("transfers", "to_route_id"),
         ],
     },
+
     "calendar": {
         "id_col": "service_id",
         "identity_cols": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
@@ -43,6 +44,7 @@ ID_CONFIG = {
             ("calendar_dates", "service_id"),
         ],
     },
+
     "trips": {
         "id_col": "trip_id",
         "identity_cols": ["route_id", "shape_id", "service_id", "trip_headsign", "direction_id"], #should "service_id" be dropped?
