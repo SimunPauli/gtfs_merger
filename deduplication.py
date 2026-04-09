@@ -2,6 +2,7 @@ import pandas as pd
 import gtfs_kit as gk
 from typing import List, Tuple, Set
 import warnings
+import numpy as np
 
 def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identity_cols: List[str],
                      foreign_keys: List[Tuple[str, str]]) -> int:
@@ -35,7 +36,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         # Group and concatenate row signatures into single signature per ID
         signatures = (
             df_primary
-            .groupby(id_col)["_row_sig"]
+            .groupby(id_col, sort=False)["_row_sig"]
             .apply(tuple)
             .map(hash)
             .rename("_signature")
@@ -45,7 +46,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         # Map signature to canonical (minimum) ID
         canonical_map = (
             signatures
-            .groupby('_signature')[id_col]
+            .groupby('_signature', sort=False)[id_col]
             .min()
         )
 
@@ -71,16 +72,18 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         df_st = feed.stop_times.sort_values(["trip_id", "stop_sequence"])
         inital_count_st = len(df_st)
 
-        df_st['_row_sig'] = pd.util.hash_pandas_object(
+        df_st["_row_sig"] = pd.util.hash_pandas_object(
             df_st[["stop_id", "arrival_time", "departure_time"]],
             index=False
-        )
-
+        ).astype("uint64")
+        df_st["_pos"] = df_st.groupby("trip_id").cumcount().astype("uint64") + 1
         pattern = (
-            df_st
-            .groupby("trip_id")["_row_sig"]
-            .agg(lambda x: pd.util.hash_pandas_object(x, index=False).sum())
+            (df_st["_row_sig"] * df_st["_pos"])
+            .groupby(df_st["trip_id"])
+            .sum()
         )
+        df_st = df_st.drop("_pos")
+
         df_st = df_st.drop(columns=["_row_sig"])  # save memory
         df_primary["_stop_times_sig"] = df_primary["trip_id"].map(pattern)
 
@@ -91,7 +94,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
 
         canonical = (
             df_primary
-            .groupby("trip_sig")["trip_id"]
+            .groupby("trip_sig", sort=False)["trip_id"]
             .min()
         )
         trip_map = (
@@ -101,10 +104,8 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
 
         #Should it handel block_id?? Planning on removing block_id
 
-        df_primary["trip_id"] = df_primary["trip_id"].map(trip_map).fillna(df_primary["trip_id"])
-        df_st["trip_id"] = df_st["trip_id"].map(trip_map).fillna(df_st["trip_id"])
-
-        df_primary = df_primary.drop_duplicates("trip_id")
+        df_primary["trip_id"] = df_primary["trip_id"].map(trip_map)
+        df_st["trip_id"] = df_st["trip_id"].map(trip_map)
 
         df_st = (
             df_st
@@ -113,12 +114,9 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         )
         df_primary = (
             df_primary
-            .sort_values(["trip_id"])
-            .drop_duplicates(["trip_id"])
-            .drop(columns=["_stop_times_sig", "trip_sig"], errors="ignore")
+            .sort_values("trip_id")
+            .drop_duplicates("trip_id")
         )
-
-        df_primary = df_primary.drop(columns=["_stop_times_sig", "trip_sig"], errors="ignore")
 
         feed.trips = df_primary.reset_index(drop=True)
         feed.stop_times = df_st.reset_index(drop=True)
@@ -135,15 +133,17 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         # while calendar is small file. Therefor stop_times signiture
         # is joined with calendar.
         df_st = feed.stop_times.sort_values(["trip_id", "stop_sequence"])
-        df_st['_row_sig'] = pd.util.hash_pandas_object(
+        df_st["_row_sig"] = pd.util.hash_pandas_object(
             df_st[["stop_id", "arrival_time", "departure_time"]],
             index=False
-        )
+        ).astype("uint64")
+        df_st["_pos"] = df_st.groupby("trip_id").cumcount().astype("uint64") + 1
         pattern_st = (
-            df_st
-            .groupby("trip_id")["_row_sig"]
-            .agg(lambda x: pd.util.hash_pandas_object(x, index=False).sum())
+            (df_st["_row_sig"] * df_st["_pos"])
+            .groupby(df_st["trip_id"])
+            .sum()
         )
+        df_st = df_st.drop("_pos")
 
         df_trips["_stop_times_sig"] = df_trips["trip_id"].map(pattern_st)
         del df_st, pattern_st # save memory
@@ -154,7 +154,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         )
         pattern_trips = (
             df_trips
-            .groupby("service_id")["trip_sig"]
+            .groupby("service_id", sort=False)["trip_sig"]
             .agg(lambda x: pd.util.hash_pandas_object(x, index=False).sum())
         )
 
@@ -166,18 +166,18 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         )
 
         df_primary = df_primary.sort_values(["_service_sig", "start_date"])
-        df_primary["prev_end"] = df_primary.groupby("_service_sig")["end_date"].shift(1)
+        df_primary["prev_end"] = df_primary.groupby("_service_sig", sort=False)["end_date"].shift(1)
 
         df_primary["is_contiguous"] = (
             df_primary["start_date"] == df_primary["prev_end"] + pd.Timedelta(days=1)
         )
         df_primary["segment_id"] = (
             (~df_primary["is_contiguous"])
-            .groupby(df_primary["_service_sig"])
+            .groupby(df_primary["_service_sig"], sort=False)
             .cumsum()
         )
         df_primary["service_id_canonical"] = (
-            df_primary.groupby(["_service_sig", "segment_id"])["service_id"]
+            df_primary.groupby(["_service_sig", "segment_id"], sort=False)["service_id"]
             .transform("min")
         )
         id_to_canonical = (
@@ -186,7 +186,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
             .set_index("service_id")["service_id_canonical"]
         )
         df_primary = (
-            df_primary.groupby(["_service_sig", "segment_id"], as_index=False)
+            df_primary.groupby(["_service_sig", "segment_id"], as_index=False, sort=False)
             .agg({
                 "start_date": "min",
                 "end_date": "max",
@@ -205,7 +205,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         # Map each unique combination of identity cols to canonical (minimum) ID
         df_primary["service_id_canonical"] = (
             df_primary
-            .groupby(use_identity_cols + ['_service_sig'], dropna=False)["service_id"]
+            .groupby(use_identity_cols + ['_service_sig'], sort=False)["service_id"]
             .transform('min')
         )
 
@@ -225,11 +225,11 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         lon_threshold = 0.00064109755
 
         max_lat_delta = (
-            df_primary.groupby("stop_id")["stop_lat"]
+            df_primary.groupby("stop_id", sort=False)["stop_lat"]
             .transform(lambda x: (x.mean() - x).abs().max())  # stop distance from average coordinate
         )
         max_lon_delta = (
-            df_primary.groupby("stop_id")["stop_lon"]
+            df_primary.groupby("stop_id", sort=False)["stop_lon"]
             .transform(lambda x: (x.mean() - x).abs().max())
         )
         df_primary["stable_loc"] = (max_lat_delta < lat_threshold) & (
@@ -237,7 +237,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
 
         stable_means = (
             df_primary.loc[df_primary["stable_loc"]]
-            .groupby("stop_id", as_index=True)[["stop_lat", "stop_lon"]]
+            .groupby("stop_id", as_index=True, sort=False)[["stop_lat", "stop_lon"]]
             .mean()
         )
 
@@ -272,7 +272,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         # Map each unique combination of identity cols to canonical (minimum) ID
         canonical_df = (
             df_primary
-            .groupby(use_identity_cols, dropna=False)[id_col]
+            .groupby(use_identity_cols, dropna=False, sort=False)[id_col]
             .min()
             .reset_index()
         )
