@@ -82,9 +82,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
             .groupby(df_st["trip_id"])
             .sum()
         )
-        df_st = df_st.drop("_pos")
-
-        df_st = df_st.drop(columns=["_row_sig"])  # save memory
+        df_st = df_st.drop(columns=["_pos","_row_sig"])  # save memory
         df_primary["_stop_times_sig"] = df_primary["trip_id"].map(pattern)
 
         df_primary["trip_sig"] = pd.util.hash_pandas_object(
@@ -290,7 +288,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
             df_primary
             .set_index("stop_id_prefix")["stop_id_prefix_canonical"]
         )
-        df_st["stop_id"] = df_st["stop_id_prefix"].map(id_to_canonical).fillna(df_st["stop_id"])
+        df_st["stop_id"] = df_st["stop_id_prefix"].map(id_to_canonical)
         df_st = df_st.drop(columns=["stop_id_prefix"])
         setattr(feed, "stop_times", df_st)
 
