@@ -279,12 +279,19 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
 
         #correct stop_id for stop_times
         df_st = feed.stop_times
-        id_to_canonical = (
-            df_primary[["stop_id", "stop_id_prefix_canonical"]]
-            .drop_duplicates()
-            .set_index("stop_id")["stop_id_prefix_canonical"]
+        df_st["stop_id_prefix"] = (
+                df_st["feed_id"].astype(str)
+                .str.replace("GTFS_", "", regex=False)
+                .str.replace(".zip", "", regex=False)
+                + "_"
+                + df_st["stop_id"].astype(str)
         )
-        df_st["stop_id"] = df_st["stop_id"].map(id_to_canonical).fillna(df_st["stop_id"])
+        id_to_canonical = (
+            df_primary
+            .set_index("stop_id_prefix")["stop_id_prefix_canonical"]
+        )
+        df_st["stop_id"] = df_st["stop_id_prefix"].map(id_to_canonical).fillna(df_st["stop_id"])
+        df_st = df_st.drop(columns=["stop_id_prefix"])
         setattr(feed, "stop_times", df_st)
 
         df_primary["stop_id"] = df_primary["stop_id_prefix_canonical"]
