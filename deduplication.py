@@ -76,7 +76,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
             df_st[["stop_id", "arrival_time", "departure_time"]],
             index=False
         ).astype("uint64")
-        df_st["_pos"] = df_st.groupby("trip_id").cumcount().astype("uint64") + 1
+        df_st["_pos"] = df_st.groupby("trip_id").cumcount().astype("uint64") + 1 #hash is order-insensitive so adding this
         pattern = (
             (df_st["_row_sig"] * df_st["_pos"])
             .groupby(df_st["trip_id"])
@@ -218,11 +218,14 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         )
         setattr(feed, primary_table, df_primary)
 
-    elif primary_table == "stops":  # coordinate of stops sometimes changes a little bit. I've been told they keep stop_id consistent (!) and only change it when it is moved more than 40 m. The "within 40m=stop_id" is not consistent.
-        # df_primary = df_primary.sort_values(id_col)
+    elif primary_table == "stops":
+        # coordinate of stops sometimes changes a little bit.
+        # I've been told they keep stop_id consistent (!) and only change
+        # it when it is moved more than 40 m. The "within 40m=stop_id" is
+        # not consistent. I set it to ~100m in lat/lon tolerance at 56N.
 
-        lat_threshold = 0.0003592535
-        lon_threshold = 0.00064109755
+        lat_threshold = 0.000898
+        lon_threshold = 0.00161
 
         max_lat_delta = (
             df_primary.groupby("stop_id", sort=False)["stop_lat"]
@@ -233,7 +236,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
             .transform(lambda x: (x.mean() - x).abs().max())
         )
         df_primary["stable_loc"] = (max_lat_delta < lat_threshold) & (
-                    max_lon_delta < lon_threshold)  # ~40m (~56.6m in diagonal movement) at 56N
+                    max_lon_delta < lon_threshold)  # ~100m (~141m in diagonal movement) at 56N.
 
         stable_means = (
             df_primary.loc[df_primary["stable_loc"]]
@@ -254,18 +257,47 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
                 "\nDuplicated stop_id with lat/lon differences > 40, will get new stop_id."
             )
 
-        # drop duplicates with same stop_id/_lat/_lon. lat/lon has been average by stop_id if within 40m. Duplicated stop_id with delta lat/lon, will get new stop_id below.
-        df_primary = df_primary.drop_duplicates(subset=["stop_id", "stop_lat", "stop_lon"], inplace=False)
+        # drop duplicates with same stop_id/_lat/_lon. lat/lon has been average by stop_id if within 100m. Duplicated stop_id with delta lat/lon, will get new stop_id below.
 
-        #prefix non-unique stop_id
+        # prefix needed for non-unique stop_id
+        df_primary["stop_id_prefix"] = (
+                df_primary["feed_id"].astype(str)
+                .str.replace("GTFS_", "", regex=False)
+                .str.replace(".zip", "", regex=False)
+                + "_"
+                + df_primary["stop_id"].astype(str)
+        )
 
-        feed.stops = df_primary.reset_index(drop=True)
+
+        # Can't use canonical_df as with other, as stop_id is not prefix beforehand.
+        # Not prefixed because stop_id is more stable across feeds, but within 100m.
+        df_primary["stop_id_prefix_canonical"] = (
+            df_primary
+            .groupby(["stop_id", "stop_lat", "stop_lon"], sort=False)["stop_id_prefix"]
+            .transform("min")
+        )
+
+        #correct stop_id for stop_times
+        df_st = feed.stop_times
+        id_to_canonical = (
+            df_primary[["stop_id", "stop_id_prefix_canonical"]]
+            .drop_duplicates()
+            .set_index("stop_id")["stop_id_prefix_canonical"]
+        )
+        df_st["stop_id"] = df_st["stop_id"].map(id_to_canonical).fillna(df_st["stop_id"])
+        setattr(feed, "stop_times", df_st)
+
+        df_primary["stop_id"] = df_primary["stop_id_prefix_canonical"]
+        df_primary = df_primary.drop(columns=["stop_id_prefix_canonical", "stop_id_prefix"])
+        df_primary = df_primary.drop_duplicates(subset=use_identity_cols + ["stop_id"], keep="first")
+        setattr(feed, primary_table, df_primary)
+
         final_count = len(df_primary)
         duplicates_removed = initial_count - final_count
         return duplicates_removed
 
 
-    else:
+    else: #only routes and agency
         # For simple tables: group by identity columns directly
         # df_primary = df_primary.sort_values(id_col)
 

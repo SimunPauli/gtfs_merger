@@ -2,7 +2,7 @@
 ID_CONFIG = {
     "stops": {
         "id_col": "stop_id",
-        "identity_cols": ["stop_lat", "stop_lon", "stop_name", "stop_id"], #stops only table with is primary key included in identity_cols. This is because stops are often moved somewhat, but I've been promised they don't change stop_id unless they move it more than 40 meters.
+        "identity_cols": ["stop_lat", "stop_lon", "stop_id"], #stops only table with is primary key included in identity_cols. This is because stops are often moved somewhat, but I've been promised they don't change stop_id unless they move it more than 40 meters.
         "foreign_keys": [
             ("stop_times", "stop_id"),
             ("transfers", "from_stop_id"),
