@@ -1,4 +1,11 @@
 # Configuration: primary table name as key, with id column stored in id_col
+
+#The order of this list is important. Determent's the order of deduplication.
+#stops need to be before stop_times, which is deduplicated during trips
+#agency needs to be before routes
+#shapes need to be before trips
+#routes need to be before trips
+#calendar needs to be before trips
 ID_CONFIG = {
     "stops": {
         "id_col": "stop_id",
