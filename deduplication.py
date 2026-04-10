@@ -274,6 +274,10 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
             .groupby(["stop_id", "stop_lat", "stop_lon"], sort=False)["stop_id_prefix"]
             .transform("min")
         )
+        id_to_canonical = (
+            df_primary
+            .set_index("stop_id_prefix")["stop_id_prefix_canonical"]
+        )
 
         #correct stop_id for stop_times
         df_st = feed.stop_times
@@ -284,17 +288,31 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
                 + "_"
                 + df_st["stop_id"].astype(str)
         )
-        id_to_canonical = (
-            df_primary
-            .set_index("stop_id_prefix")["stop_id_prefix_canonical"]
-        )
+
         df_st["stop_id"] = df_st["stop_id_prefix"].map(id_to_canonical)
         df_st = df_st.drop(columns=["stop_id_prefix"])
         setattr(feed, "stop_times", df_st)
 
 
-        # need to handel transfers !
-
+        df_trans = feed.transfers
+        df_trans["from_stop_id_prefix"] = (
+                df_trans["feed_id"].astype(str)
+                .str.replace("GTFS_", "", regex=False)
+                .str.replace(".zip", "", regex=False)
+                + "_"
+                + df_trans["from_stop_id"].astype(str)
+        )
+        df_trans["to_stop_id_prefix"] = (
+                df_trans["feed_id"].astype(str)
+                .str.replace("GTFS_", "", regex=False)
+                .str.replace(".zip", "", regex=False)
+                + "_"
+                + df_trans["to_stop_id"].astype(str)
+        )
+        df_trans["from_stop_id"] = df_trans["from_stop_id_prefix"].map(id_to_canonical)
+        df_trans["to_stop_id"] = df_trans["to_stop_id_prefix"].map(id_to_canonical)
+        df_trans = df_trans.drop(columns=["from_stop_id_prefix", "to_stop_id_prefix"])
+        setattr(feed, "transfers", df_trans)
 
         df_primary["stop_id"] = df_primary["stop_id_prefix_canonical"]
         df_primary = df_primary.drop(columns=["stop_id_prefix_canonical", "stop_id_prefix"])
@@ -345,6 +363,12 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
 
         # Map foreign keys to canonical IDs
         fk_df[fk_col] = fk_df[fk_col].map(id_to_canonical).fillna(fk_df[fk_col])
+        if fk_table == "transfers":
+            fk_df = fk_df.drop_duplicates(
+                subset=["from_stop_id", "to_stop_id", "from_route_id", "to_route_id", "from_trip_id", "to_trip_id"],
+                keep="first"
+            )
+
         setattr(feed, fk_table, fk_df)
 
     final_count = len(getattr(feed, primary_table))
