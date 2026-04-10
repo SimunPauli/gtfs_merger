@@ -141,7 +141,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
             .groupby(df_st["trip_id"])
             .sum()
         )
-        df_st = df_st.drop("_pos")
+        df_st = df_st.drop(columns = "_pos")
 
         df_trips["_stop_times_sig"] = df_trips["trip_id"].map(pattern_st)
         del df_st, pattern_st # save memory
