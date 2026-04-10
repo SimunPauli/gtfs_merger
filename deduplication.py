@@ -199,7 +199,6 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
             })
             .rename(columns={"service_id_canonical": "service_id"})
         )
-
         # Map each unique combination of identity cols to canonical (minimum) ID
         df_primary["service_id_canonical"] = (
             df_primary
@@ -211,7 +210,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
             df_primary[
                 df_primary["service_id"] == df_primary["service_id_canonical"]
                 ]
-            .drop(columns=["service_id_canonical", "_service_sig"])
+            .drop(columns=["service_id_canonical", "_service_sig", "segment_id"])
             .reset_index(drop=True)
         )
         setattr(feed, primary_table, df_primary)
@@ -315,7 +314,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         setattr(feed, "transfers", df_trans)
 
         df_primary["stop_id"] = df_primary["stop_id_prefix_canonical"]
-        df_primary = df_primary.drop(columns=["stop_id_prefix_canonical", "stop_id_prefix"])
+        df_primary = df_primary.drop(columns=["stop_id_prefix_canonical", "stop_id_prefix", "_stop_times_sig", "trip_sig"])
         df_primary = df_primary.drop_duplicates(subset=use_identity_cols + ["stop_id"], keep="first")
         setattr(feed, primary_table, df_primary)
 
