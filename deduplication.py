@@ -292,6 +292,10 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         df_st = df_st.drop(columns=["stop_id_prefix"])
         setattr(feed, "stop_times", df_st)
 
+
+        # need to handel transfers !
+
+
         df_primary["stop_id"] = df_primary["stop_id_prefix_canonical"]
         df_primary = df_primary.drop(columns=["stop_id_prefix_canonical", "stop_id_prefix"])
         df_primary = df_primary.drop_duplicates(subset=use_identity_cols + ["stop_id"], keep="first")
