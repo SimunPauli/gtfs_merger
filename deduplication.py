@@ -125,7 +125,6 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         return duplicates_removed # don't run foreign key loop has it has been done manually for trips (and stop_times)
 
     elif primary_table == "calendar": #Should run after deduplicating of routes, but before trips (and stop_times)
-        df_trips = feed.trips.copy()
 
         # The goal is to shorten stop_times as it is a very large file,
         # while calendar is small file. Therefor stop_times signiture
@@ -135,19 +134,19 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
             df_st[["stop_id", "arrival_time", "departure_time"]],
             index=False
         ).astype("uint64")
-        df_st["_pos"] = df_st.groupby("trip_id").cumcount().astype("uint64") + 1
+        df_st["_pos"] = df_st.groupby("trip_id").cumcount().astype("uint64") + 1 #make stop_times order sensitive
         pattern_st = (
             (df_st["_row_sig"] * df_st["_pos"])
             .groupby(df_st["trip_id"])
             .sum()
         )
-        df_st = df_st.drop(columns = "_pos")
 
+        df_trips = feed.trips.copy()
         df_trips["_stop_times_sig"] = df_trips["trip_id"].map(pattern_st)
         del df_st, pattern_st # save memory
 
         df_trips['trip_sig'] = pd.util.hash_pandas_object(
-            df_trips[["route_id", "direction_id", "_stop_times_sig"]],
+            df_trips[["route_id", "direction_id", "shape_id", "_stop_times_sig"]],
             index=False
         )
         pattern_trips = (
@@ -164,18 +163,22 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         )
 
         df_primary = df_primary.sort_values(["_service_sig", "start_date"])
+
+        df_primary["start_date"] = pd.to_datetime(df_primary["start_date"])
+        df_primary["end_date"] = pd.to_datetime(df_primary["end_date"])
         df_primary["prev_end"] = df_primary.groupby("_service_sig", sort=False)["end_date"].shift(1)
 
         df_primary["is_contiguous"] = (
-            df_primary["start_date"] == df_primary["prev_end"] + pd.Timedelta(days=1)
+            df_primary["start_date"] == pd.to_datetime(df_primary["prev_end"]) + pd.Timedelta(days=1)
         )
         df_primary["segment_id"] = (
-            (~df_primary["is_contiguous"])
+            (~df_primary["is_contiguous"]) #True -> row starts new segment. False -> row continuous from prev row
             .groupby(df_primary["_service_sig"], sort=False)
-            .cumsum()
+            .cumsum() #number of non-continuous segments with identical service signature
         )
         df_primary["service_id_canonical"] = (
-            df_primary.groupby(["_service_sig", "segment_id"], sort=False)["service_id"]
+            df_primary
+            .groupby(["_service_sig", "segment_id"], sort=False)["service_id"]
             .transform("min")
         )
         id_to_canonical = (
@@ -197,22 +200,12 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
                 "saturday": "first",
                 "sunday": "first",
             })
-            .rename(columns={"service_id_canonical": "service_id"})
-        )
-        # Map each unique combination of identity cols to canonical (minimum) ID
-        df_primary["service_id_canonical"] = (
-            df_primary
-            .groupby(use_identity_cols + ['_service_sig'], sort=False)["service_id"]
-            .transform('min')
-        )
-
-        df_primary = (
-            df_primary[
-                df_primary["service_id"] == df_primary["service_id_canonical"]
-                ]
-            .drop(columns=["service_id_canonical", "_service_sig", "segment_id"])
+            .drop(columns=["_service_sig", "segment_id"])
             .reset_index(drop=True)
         )
+        df_primary["start_date"] = df_primary["start_date"].dt.strftime("%Y%m%d")
+        df_primary["end_date"] = df_primary["end_date"].dt.strftime("%Y%m%d")
+
         setattr(feed, primary_table, df_primary)
 
     elif primary_table == "stops":
@@ -249,9 +242,9 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         # warning flags
         if (~df_primary['stable_loc']).any():
             print(
-                "Warning:", (~df_primary['stable_loc']).sum(), "stop_id with max delta lat/lon above 40m threshold:\n",
+                "Warning:", (~df_primary['stable_loc']).sum(), "stop_id with max delta lat/lon above 100m threshold:\n",
                 df_primary.loc[df_primary['stable_loc'], ["stop_id"]].drop_duplicates(),
-                "\nDuplicated stop_id with lat/lon differences > 40, will get new stop_id."
+                "\nDuplicated stop_id with lat/lon differences > 100, will get new stop_id."
             )
 
         # drop duplicates with same stop_id/_lat/_lon. lat/lon has been average by stop_id if within 100m. Duplicated stop_id with delta lat/lon, will get new stop_id below.
@@ -314,7 +307,10 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         setattr(feed, "transfers", df_trans)
 
         df_primary["stop_id"] = df_primary["stop_id_prefix_canonical"]
-        df_primary = df_primary.drop(columns=["stop_id_prefix_canonical", "stop_id_prefix", "_stop_times_sig", "trip_sig"])
+        df_primary = df_primary.drop(
+            columns=["_service_sig", "segment_id", "prev_end", "is_contiguous", "service_id_canonical"],
+            errors="ignore"
+        )
         df_primary = df_primary.drop_duplicates(subset=use_identity_cols + ["stop_id"], keep="first")
         setattr(feed, primary_table, df_primary)
 
