@@ -243,12 +243,14 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         df_primary.loc[stable_mask, "stop_lon"] = df_primary.loc[stable_mask, "stop_id"].map(stable_means["stop_lon"])
 
         # warning flags
-        if (~df_primary['stable_loc']).any():
+        unstable_mask = ~df_primary['stable_loc']
+        if unstable_mask.any():
             print(
-                "Warning:", (~df_primary['stable_loc']).sum(), "stop_id with max delta lat/lon above 100m threshold:\n",
-                df_primary.loc[df_primary['stable_loc'], ["stop_id"]].drop_duplicates(),
-                "\nDuplicated stop_id with lat/lon differences > 100, will get new stop_id."
+                "Warning:", unstable_mask.sum(), "stop_id with max delta lat/lon above 100m threshold:\n",
+                df_primary.loc[unstable_mask, ["stop_id"]].drop_duplicates(),
+                "\nDuplicated stop_id with lat/lon differences > 100m, will get new stop_id."
             )
+        df_primary = df_primary.drop(columns=["stable_loc"])
 
         # drop duplicates with same stop_id/_lat/_lon. lat/lon has been average by stop_id if within 100m. Duplicated stop_id with delta lat/lon, will get new stop_id below.
 
