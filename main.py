@@ -14,16 +14,16 @@ GTFS_TABLES = [
 	"calendar", "calendar_dates", "shapes", "transfers"
 ]
 
-gtfs_year = 2025
+GTFS_YEAR = 2024
 
 TEMP_DIR = Path("/home/simpal/otp/data/gtfs_data/tmp")
 TEMP_DIR.mkdir(parents=True, exist_ok=True)
 os.environ["TMPDIR"] = str(TEMP_DIR)
 tempfile.tempdir = str(TEMP_DIR)
 
-gtfs_data_root = Path("/home/simpal/O/sharing-trans-data/GTFS Data/CLEAN - GTFS DATA/" + str(gtfs_year))
-otp_output_path = Path("/home/simpal/otp/data/gtfs_data/GTFS_" + str(gtfs_year) + ".zip")
-gtfs_output_path = Path("/home/simpal/O/sharing-trans-data/GTFS Data/GTFS_" + str(gtfs_year) + ".zip")
+gtfs_data_root = Path("/home/simpal/O/sharing-trans-data/GTFS Data/CLEAN - GTFS DATA/" + str(GTFS_YEAR))
+otp_output_path = Path("/home/simpal/otp/data/gtfs_data/GTFS_" + str(GTFS_YEAR) + ".zip")
+gtfs_output_path = Path("/home/simpal/O/sharing-trans-data/GTFS Data/GTFS_" + str(GTFS_YEAR) + ".zip")
 
 if not gtfs_data_root.is_dir():
 	print("INPUT ERROR: Directory not found: " + str(gtfs_data_root))
@@ -39,7 +39,7 @@ def extract_date(path):
 
 
 # Also get the last file from previous year if it exists
-gtfs_data_root_prev = Path("/home/simpal/O/sharing-trans-data/GTFS Data/CLEAN - GTFS DATA/" + str(gtfs_year - 1))
+gtfs_data_root_prev = Path("/home/simpal/O/sharing-trans-data/GTFS Data/CLEAN - GTFS DATA/" + str(GTFS_YEAR - 1))
 if gtfs_data_root_prev.is_dir():
 	gtfs_files_prev = list(gtfs_data_root_prev.rglob("*.zip"))
 	if gtfs_files_prev:
@@ -47,7 +47,7 @@ if gtfs_data_root_prev.is_dir():
 		gtfs_files_prev_sorted = sorted(gtfs_files_prev, key=extract_date)
 		last_prev_file = gtfs_files_prev_sorted[-1]
 		gtfs_files.insert(0, last_prev_file)
-		print(f"Added last file from {gtfs_year - 1}: {last_prev_file.name}")
+		print(f"Added last file from {GTFS_YEAR - 1}: {last_prev_file.name}")
 
 gtfs_release = (
 	pd.DataFrame({
@@ -77,7 +77,7 @@ for _, row in gtfs_release.iterrows():
 	gtfs_list[row["file"]] = feed
 
 # Truncating all files
-from truncate_calendar_date import truncate_feed_to_date
+from truncate_calendar_date import truncate_feed_to_date, truncate_feed_to_date_range
 
 print("\nTruncating all feeds to the date before next feed release:")
 for i, row in gtfs_release.iterrows():
@@ -87,6 +87,18 @@ for i, row in gtfs_release.iterrows():
 		continue
 	print(f"Truncating {file_key} to {cutoff.date()}")
 	gtfs_list[file_key] = truncate_feed_to_date(gtfs_list[file_key], cutoff)
+
+
+year_start = pd.Timestamp(f"{GTFS_YEAR}-01-01")
+year_end = pd.Timestamp(f"{GTFS_YEAR + 1}-01-01")
+print(f"\nTruncating all feeds to GTFS_YEAR={GTFS_YEAR}:")
+for file_key in list(gtfs_list.keys()):
+    print(f"Truncating {file_key} to {year_start.date()} - {year_end.date()}")
+    gtfs_list[file_key] = truncate_feed_to_date_range(
+        gtfs_list[file_key],
+        year_start,
+        year_end
+    )
 
 # Merge all separate feeds into one
 print("\nMerging all feeds into combined GTFS feed...")
