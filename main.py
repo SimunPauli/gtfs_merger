@@ -79,6 +79,7 @@ for _, row in gtfs_release.iterrows():
 # Truncating all files
 from truncate_calendar_date import truncate_feed_to_date
 
+print("\nTruncating all feeds to the date before next feed release:")
 for i, row in gtfs_release.iterrows():
 	file_key = row["file"]
 	cutoff = row["date_end"]
