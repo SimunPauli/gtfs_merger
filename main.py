@@ -109,7 +109,7 @@ for feed_name in feed_names[1:]:
     del feed_to_merge
 
 
-print(f"\nMerge complete! Combined feed statistics:")
+print(f"\nAll feed merged. Combined feed statistics:")
 if combined_feed.agency is not None:
     print(f"  Agencies: {len(combined_feed.agency)}")
 if combined_feed.routes is not None:
@@ -125,9 +125,7 @@ if combined_feed.calendar is not None:
 if combined_feed.shapes is not None:
     print(f"  Shape points: {len(combined_feed.shapes)}")
 
-#combined_feed_org = copy.deepcopy(combined_feed)
-#combined_feed = copy.deepcopy(combined_feed_org)
-
+print("Now deduplication start with prefixing of conflicting IDs:")
 for primary_table, config in ID_CONFIG.items():
     if primary_table in ['stops', 'calendar_dates', 'stop_times']:
         continue
