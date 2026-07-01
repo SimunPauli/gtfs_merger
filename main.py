@@ -18,25 +18,21 @@ if not gtfs_data_root.is_dir():
 # Recursively find zip files
 gtfs_files = list(gtfs_data_root.rglob("*.zip"))
 
+# Extract YYYYMMDD from filename
+def extract_date(path):
+    match = re.search(r"\d{8}", path.name)
+    return pd.to_datetime(match.group(), format="%Y%m%d") if match else None
+
 # Also get the last file from previous year if it exists
 gtfs_data_root_prev = Path("/home/simpal/O/sharing-trans-data/GTFS Data/CLEAN - GTFS DATA/" + str(gtfs_year - 1))
 if gtfs_data_root_prev.is_dir():
     gtfs_files_prev = list(gtfs_data_root_prev.rglob("*.zip"))
     if gtfs_files_prev:
-        # Sort and get the last file from previous year
-        def extract_date(path):
-            match = re.search(r"\d{8}", path.name)
-            return pd.to_datetime(match.group(), format="%Y%m%d") if match else None
-
         gtfs_files_prev_sorted = sorted(gtfs_files_prev, key=extract_date)
         last_prev_file = gtfs_files_prev_sorted[-1]
         gtfs_files.insert(0, last_prev_file)
         print(f"Added last file from {gtfs_year - 1}: {last_prev_file.name}")
 
-# Extract YYYYMMDD from filename
-def extract_date(path):
-    match = re.search(r"\d{8}", path.name)
-    return pd.to_datetime(match.group(), format="%Y%m%d") if match else None
 
 
 gtfs_release = (
@@ -99,7 +95,7 @@ for table in [
 for feed_name in feed_names[1:]:
     print(f"Merging feed: {feed_name}")
     feed_to_merge = gtfs_list[feed_name]
-
+    #Files are not check for None. All files are required.
     combined_feed.agency = pd.concat([combined_feed.agency, feed_to_merge.agency.assign(feed_id = feed_name)], ignore_index=True)
     combined_feed.routes = pd.concat([combined_feed.routes, feed_to_merge.routes.assign(feed_id = feed_name)], ignore_index=True)
     combined_feed.stops = pd.concat([combined_feed.stops, feed_to_merge.stops.assign(feed_id = feed_name)], ignore_index=True)
