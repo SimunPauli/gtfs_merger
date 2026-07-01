@@ -114,7 +114,10 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
             df_primary
             .sort_values("trip_id")
             .drop_duplicates("trip_id")
+            .drop(columns=["_stop_times_sig", "trip_sig"])
         )
+
+        df_primary = df_primary.drop(columns = ["block_id", "trip_short_name"]) #don't take block_id and trip_short_name into account
 
         feed.trips = df_primary.reset_index(drop=True)
         feed.stop_times = df_st.reset_index(drop=True)
@@ -283,6 +286,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
 
         df_st["stop_id"] = df_st["stop_id_prefix"].map(id_to_canonical)
         df_st = df_st.drop(columns=["stop_id_prefix"])
+
         setattr(feed, "stop_times", df_st)
 
 
@@ -312,6 +316,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
             errors="ignore"
         )
         df_primary = df_primary.drop_duplicates(subset=use_identity_cols + ["stop_id"], keep="first")
+        df_primary = df_primary.drop(columns=["stop_id_prefix", "stop_id_prefix_canonical"])
         setattr(feed, primary_table, df_primary)
 
         final_count = len(df_primary)
