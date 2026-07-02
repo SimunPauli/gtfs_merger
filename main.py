@@ -15,7 +15,7 @@ def main():
 		"calendar", "calendar_dates", "shapes", "transfers"
 	]
 
-	GTFS_YEAR = 2024
+	GTFS_YEAR = 2023
 
 	TEMP_DIR = Path("/home/simpal/otp/data/gtfs_data/tmp")
 	TEMP_DIR.mkdir(parents=True, exist_ok=True)
@@ -196,6 +196,8 @@ def main():
 			print(f"    ⚠️  WARNING: {table_name} is empty!")
 	combined_feed.to_file(gtfs_output_path)
 	combined_feed.to_file(otp_output_path)
+
+	print("\nExport complete!")
 
 if __name__ == "__main__":
 	main()
