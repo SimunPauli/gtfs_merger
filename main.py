@@ -22,8 +22,12 @@ def main():
 	os.environ["TMPDIR"] = str(TEMP_DIR)
 	tempfile.tempdir = str(TEMP_DIR)
 
+	#The directory where the GTFS files are stored. It should contain a subdirectory for each year. Only GTFS are to be in this directory.
 	gtfs_data_root = Path("/home/simpal/O/sharing-trans-data/GTFS Data/CLEAN - GTFS DATA/" + str(GTFS_YEAR))
+	#The directory where the combined GTFS file will be stored.
+	#This is the directory where the OTP server will look for the GTFS file.
 	otp_output_path = Path("/home/simpal/otp/data/gtfs_data/GTFS_" + str(GTFS_YEAR) + ".zip")
+	#The directory for public (internal DTU management) GTFS file.
 	gtfs_output_path = Path("/home/simpal/O/sharing-trans-data/GTFS Data/GTFS_" + str(GTFS_YEAR) + ".zip")
 
 	if not gtfs_data_root.is_dir():
@@ -194,6 +198,10 @@ def main():
 		print(f"  {table_name}: {len(df)} rows, {len(df.columns)} columns")
 		if len(df) == 0:
 			print(f"    ⚠️  WARNING: {table_name} is empty!")
+
+	print("\nExporting combined GTFS feed to:")
+	print(f"  {gtfs_output_path}")
+	print(f"  {otp_output_path}")
 	combined_feed.to_file(gtfs_output_path)
 	combined_feed.to_file(otp_output_path)
 
