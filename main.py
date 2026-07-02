@@ -181,6 +181,19 @@ def main():
 		if df is not None and "feed_id" in df.columns:
 			setattr(combined_feed, table_name, df.drop(columns=["feed_id"]))
 
+	combined_feed.table_names = [
+		table_name
+		for table_name in GTFS_TABLES
+		if getattr(combined_feed, table_name, None) is not None
+		   and not getattr(combined_feed, table_name).empty
+	]
+
+	print("\nFinal validation before export:")
+	for table_name in combined_feed.table_names:
+		df = getattr(combined_feed, table_name)
+		print(f"  {table_name}: {len(df)} rows, {len(df.columns)} columns")
+		if len(df) == 0:
+			print(f"    ⚠️  WARNING: {table_name} is empty!")
 	combined_feed.to_file(gtfs_output_path)
 	combined_feed.to_file(otp_output_path)
 

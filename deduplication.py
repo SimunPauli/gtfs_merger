@@ -117,7 +117,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
             .drop(columns=["_stop_times_sig", "trip_sig"])
         )
 
-        df_primary = df_primary.drop(columns = ["block_id", "trip_short_name"]) #don't take block_id and trip_short_name into account
+        df_primary = df_primary.drop(columns = ["block_id"], errors="ignore") #don't take block_id into account
 
         feed.trips = df_primary.reset_index(drop=True)
         feed.stop_times = df_st.reset_index(drop=True)
