@@ -1,5 +1,4 @@
 import pandas as pd
-import gtfs_kit as gk
 import copy
 from pathlib import Path
 import re
@@ -7,6 +6,11 @@ import os
 import tempfile
 from prefix_ids import apply_prefix_to_all_ids
 from ID_configuration import ID_CONFIG
+import gtfs_kit as gk
+from gtfs_kit import constants as cs
+cs.DTYPES.setdefault("transfers", {})
+cs.DTYPES["transfers"]["from_route_id"] = "string" #gtfs_kit missing from_route_id from transfer
+cs.DTYPES["transfers"]["to_route_id"] = "string" #gtfs_kit missing to_route_id from transfer
 
 def main():
 	# Define constant for table names
@@ -15,7 +19,7 @@ def main():
 		"calendar", "calendar_dates", "shapes", "transfers"
 	]
 
-	GTFS_YEAR = 2023
+	GTFS_YEAR = 2018
 
 	TEMP_DIR = Path("/home/simpal/otp/data/gtfs_data/tmp")
 	TEMP_DIR.mkdir(parents=True, exist_ok=True)
