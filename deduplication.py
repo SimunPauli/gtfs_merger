@@ -3,6 +3,7 @@ import gtfs_kit as gk
 from typing import List, Tuple, Set
 import warnings
 import numpy as np
+from deduplicate_calendar_and_trips import deduplicate_calendar_and_trips
 
 def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identity_cols: List[str],
                      foreign_keys: List[Tuple[str, str]]) -> int:
