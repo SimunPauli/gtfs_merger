@@ -158,6 +158,11 @@ def main():
 	from deduplication import deduplicate_feed
 
 	tables_to_deduplicate = ['stops', 'shapes', 'agency', 'routes', 'calendar', 'trips']
+	#TODO: Currently stops.txt with "stations" (location_type=1) mess up merging. Currenlty these
+	# files have been removed due to stops.txt inluding "stations": GTFS_20180504.zip, GTFS_20180628.zip og GTFS_20180712.zip
+	# They have been removed from O:\Public\Sharing-4212-Public-Transport-data\GTFS Data\CLEAN - GTFS DATA\, but are still in
+	# O:\Public\Sharing-4212-Public-Transport-data\GTFS Data\2018\
+
 	print("Starting deduplication process...")
 	print(f"\nBefore deduplication:")
 	for table in tables_to_deduplicate:
@@ -209,8 +214,8 @@ def main():
 
 	print("\nExporting combined GTFS feed to:")
 	print(f"  {gtfs_output_path}")
-	print(f"  {otp_output_path}")
 	combined_feed.to_file(gtfs_output_path)
+	print(f"  {otp_output_path}")
 	combined_feed.to_file(otp_output_path)
 
 	print("\nExport complete!")
