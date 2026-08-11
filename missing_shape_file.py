@@ -9,8 +9,8 @@ def normalize_missing_shapes(feed):
             shape_id=pd.array([pd.NA] * len(feed.trips), dtype="string")
         )
         #Remove shape_id from trips
-        if "shape_id" in feed.trips.columns:
-            feed.trips['shape_id'] = pd.NA
+    if feed.shapes is None and "shape_id" in feed.trips.columns:
+        feed.trips['shape_id'] = pd.NA
     if feed.shapes is None:
         feed.shapes = pd.DataFrame({
             "shape_id": pd.array([], dtype="string"),

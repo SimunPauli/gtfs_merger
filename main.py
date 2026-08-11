@@ -14,6 +14,9 @@ import config
 cs.DTYPES.setdefault("transfers", {})
 cs.DTYPES["transfers"]["from_route_id"] = "string"
 cs.DTYPES["transfers"]["to_route_id"] = "string"
+cs.DTYPES["transfers"]["from_trip_id"] = "string"
+cs.DTYPES["transfers"]["to_trip_id"] = "string"
+cs.DTYPES["transfers"]["min_transfer_time"] = "Int32"
 
 def main():
 	GTFS_TABLES = config.GTFS_TABLES
@@ -147,12 +150,11 @@ def main():
 		if df is not None:
 			print(f"  {table}: {len(df)}")
 
-	for primary_table, config in ID_CONFIG.items():
+	for primary_table, cfg in ID_CONFIG.items():
 		if primary_table in ['stops', 'calendar_dates', 'stop_times']:
 			continue
-		apply_prefix_to_all_ids(combined_feed, config["id_col"], config["foreign_keys"],
-		                        primary_table)
-		print(f"    Prefixed conflicting {config['id_col']} in all feeds")
+		apply_prefix_to_all_ids(combined_feed, cfg["id_col"], cfg["foreign_keys"], primary_table)
+		print(f"    Prefixed conflicting {cfg['id_col']} in all feeds")
 
 	from deduplication import deduplicate_feed
 
@@ -166,14 +168,14 @@ def main():
 			print(f"  {table}: {len(df)}")
 
 	# Apply deduplication for each ID type
-	for primary_table, config in ID_CONFIG.items():
+	for primary_table, cfg in ID_CONFIG.items():
 		print(f"\nDeduplicating {primary_table}...")
 		removed = deduplicate_feed(
 			combined_feed,
-			config["id_col"],
+			cfg["id_col"],
 			primary_table,
-			config["identity_cols"],
-			config["foreign_keys"]
+			cfg["identity_cols"],
+			cfg["foreign_keys"]
 		)
 		df = getattr(combined_feed, primary_table, None)
 		if df is not None:
