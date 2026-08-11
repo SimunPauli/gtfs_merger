@@ -104,6 +104,15 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
 
         df_primary["trip_id"] = df_primary["trip_id"].map(trip_map)
         df_st["trip_id"] = df_st["trip_id"].map(trip_map)
+        #also need to map trip_id in transfers
+        df_trans = feed.transfers
+        if df_trans is not None:
+            df_trans = df_trans.copy()
+            if "from_trip_id" in df_trans.columns:
+                df_trans["from_trip_id"] = df_trans["from_trip_id"].map(trip_map).fillna(df_trans["from_trip_id"])
+            if "to_trip_id" in df_trans.columns:
+                df_trans["to_trip_id"] = df_trans["to_trip_id"].map(trip_map).fillna(df_trans["to_trip_id"])
+            feed.transfers = df_trans
 
         df_st = (
             df_st
