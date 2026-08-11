@@ -13,6 +13,11 @@ from gtfs_kit import constants as cs
 cs.DTYPES.setdefault("transfers", {})
 cs.DTYPES["transfers"]["from_route_id"] = "string" #gtfs_kit missing from_route_id from transfer
 cs.DTYPES["transfers"]["to_route_id"] = "string" #gtfs_kit missing to_route_id from transfer
+cs.DTYPES["transfers"]["from_trip_id"] = "string" #gtfs_kit missing from_trip_id from transfer
+cs.DTYPES["transfers"]["to_trip_id"] = "string" #gtfs_kit missing to_trip_id from transfer
+cs.DTYPES["transfers"]["min_transfers_time"] = "Int32" #defualt Int16 is to small for trip-to-trip transfers (hours)
+
+cs.DTYPES["transfers"][""]
 
 def main():
 	# Define constant for table names
