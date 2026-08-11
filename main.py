@@ -141,6 +141,14 @@ def main():
 
 		del feed_to_merge
 
+	#Merger can't handel parent stations (location_type=2)
+	#Therefor location_type!=1 are removed and parent_station column is removed.
+	if "parent_station" in combined_feed.stops.columns:
+		combined_feed.stops = combined_feed.stops.drop(columns="parent_station")
+	if "location_type" in combined_feed.stops.columns:
+		combined_feed.stops = combined_feed.stops.loc[combined_feed.stops.location_type == 0]
+	#TODO: Currently only location_type=1 are included in the merging.
+
 	print(f"\nAll files merged. Now deduplication start with prefixing of conflicting IDs:")
 	print(f"\nPre-deduplication feed statistics:")
 	for table in GTFS_TABLES:
@@ -158,10 +166,7 @@ def main():
 	from deduplication import deduplicate_feed
 
 	tables_to_deduplicate = ['stops', 'shapes', 'agency', 'routes', 'calendar', 'trips']
-	#TODO: Currently stops.txt with "stations" (location_type=1) mess up merging. Currenlty these
-	# files have been removed due to stops.txt inluding "stations": GTFS_20180504.zip, GTFS_20180628.zip og GTFS_20180712.zip
-	# They have been removed from O:\Public\Sharing-4212-Public-Transport-data\GTFS Data\CLEAN - GTFS DATA\, but are still in
-	# O:\Public\Sharing-4212-Public-Transport-data\GTFS Data\2018\
+
 
 	print("Starting deduplication process...")
 	print(f"\nBefore deduplication:")
