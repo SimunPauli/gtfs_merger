@@ -1,5 +1,4 @@
 import pandas as pd
-import numpy as np
 
 def normalize_missing_shapes(feed):
     """Make a feed without shapes.txt indistinguishable from a feed
@@ -11,7 +10,7 @@ def normalize_missing_shapes(feed):
         )
         #Remove shape_id from trips
         if "shape_id" in feed.trips.columns:
-            feed.trips['shape_id'] = np.na
+            feed.trips['shape_id'] = pd.NA
     if feed.shapes is None:
         feed.shapes = pd.DataFrame({
             "shape_id": pd.array([], dtype="string"),
