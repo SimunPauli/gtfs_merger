@@ -5,40 +5,28 @@ import re
 import os
 import warnings
 import tempfile
+from missing_shape_file import normalize_missing_shapes
 from prefix_ids import apply_prefix_to_all_ids
 from ID_configuration import ID_CONFIG
-from missing_shape_file import normalize_missing_shapes
 import gtfs_kit as gk
 from gtfs_kit import constants as cs
+import config
 cs.DTYPES.setdefault("transfers", {})
-cs.DTYPES["transfers"]["from_route_id"] = "string" #gtfs_kit missing from_route_id from transfer
-cs.DTYPES["transfers"]["to_route_id"] = "string" #gtfs_kit missing to_route_id from transfer
-cs.DTYPES["transfers"]["from_trip_id"] = "string" #gtfs_kit missing from_trip_id from transfer
-cs.DTYPES["transfers"]["to_trip_id"] = "string" #gtfs_kit missing to_trip_id from transfer
-cs.DTYPES["transfers"]["min_transfers_time"] = "Int32" #defualt Int16 is to small for trip-to-trip transfers (hours)
+cs.DTYPES["transfers"]["from_route_id"] = "string"
+cs.DTYPES["transfers"]["to_route_id"] = "string"
 
 def main():
-	# Define constant for table names
-	GTFS_TABLES = [
-		"agency", "routes", "stops", "trips", "stop_times",
-		"calendar", "calendar_dates", "shapes", "transfers"
-	]
+	GTFS_TABLES = config.GTFS_TABLES
+	GTFS_YEAR = config.GTFS_YEAR
 
-	GTFS_YEAR = 2018
-
-	TEMP_DIR = Path("/home/simpal/otp/data/gtfs_data/tmp")
+	TEMP_DIR = config.TEMP_DIR
 	TEMP_DIR.mkdir(parents=True, exist_ok=True)
 	os.environ["TMPDIR"] = str(TEMP_DIR)
 	tempfile.tempdir = str(TEMP_DIR)
 
-	#The directory where the GTFS files are stored. It should contain a subdirectory for each year. Only GTFS are to be in this directory.
-	gtfs_data_root = Path("/home/simpal/O/sharing-trans-data/GTFS Data/CLEAN - GTFS DATA/" + str(GTFS_YEAR))
-	#The directory where the combined GTFS file will be stored.
-	#This is the directory where the OTP server will look for the GTFS file.
-	otp_output_path = Path("/home/simpal/otp/data/gtfs_data/GTFS_" + str(GTFS_YEAR) + ".zip")
-	#The directory for public (internal DTU management) GTFS file.
-	gtfs_output_path = Path("/home/simpal/O/sharing-trans-data/GTFS Data/GTFS_" + str(GTFS_YEAR) + ".zip")
-
+	gtfs_data_root = config.GTFS_DATA_ROOT
+	otp_output_path = config.OTP_OUTPUT_PATH
+	gtfs_output_path = config.GTFS_OUTPUT_PATH
 	if not gtfs_data_root.is_dir():
 		print("INPUT ERROR: Directory not found: " + str(gtfs_data_root))
 
@@ -53,7 +41,7 @@ def main():
 
 
 	# Also get the last file from previous year if it exists
-	gtfs_data_root_prev = Path("/home/simpal/O/sharing-trans-data/GTFS Data/CLEAN - GTFS DATA/" + str(GTFS_YEAR - 1))
+	gtfs_data_root_prev = config.GTFS_DATA_ROOT_PREV
 	if gtfs_data_root_prev.is_dir():
 		gtfs_files_prev = list(gtfs_data_root_prev.rglob("*.zip"))
 		if gtfs_files_prev:
@@ -168,8 +156,7 @@ def main():
 
 	from deduplication import deduplicate_feed
 
-	tables_to_deduplicate = ['stops', 'shapes', 'agency', 'routes', 'calendar', 'trips']
-
+	tables_to_deduplicate = config.TABLES_TO_DEDUPLICATE
 
 	print("Starting deduplication process...")
 	print(f"\nBefore deduplication:")
