@@ -1,12 +1,17 @@
 import pandas as pd
+import numpy as np
 
 def normalize_missing_shapes(feed):
     """Make a feed without shapes.txt indistinguishable from a feed
-    with an empty (header-only) shapes.txt."""
+    with an empty (header-only) shapes.txt. And make shape_id in trips
+    NaN if column exist."""
     if feed.trips is not None and "shape_id" not in feed.trips.columns:
         feed.trips = feed.trips.assign(
             shape_id=pd.array([pd.NA] * len(feed.trips), dtype="string")
         )
+        #Remove shape_id from trips
+        if "shape_id" in feed.trips.columns:
+            feed.trips['shape_id'] = np.na
     if feed.shapes is None:
         feed.shapes = pd.DataFrame({
             "shape_id": pd.array([], dtype="string"),
