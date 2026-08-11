@@ -114,6 +114,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
                 df_trans["to_trip_id"] = df_trans["to_trip_id"].map(trip_map).fillna(df_trans["to_trip_id"])
             feed.transfers = df_trans
 
+        #drop duplicates
         df_st = (
             df_st
             .sort_values(["trip_id", "stop_sequence"])
@@ -125,11 +126,16 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
             .drop_duplicates("trip_id")
             .drop(columns=["_stop_times_sig", "trip_sig"])
         )
+        df_trans = df_trans.drop_duplicates(
+            subset=["from_stop_id", "to_stop_id", "from_route_id", "to_route_id", "from_trip_id", "to_trip_id"],
+            keep="first"
+        )
 
         df_primary = df_primary.drop(columns = ["block_id"], errors="ignore") #don't take block_id into account
 
         feed.trips = df_primary.reset_index(drop=True)
         feed.stop_times = df_st.reset_index(drop=True)
+        feed.transfers = df_trans.reset_index(drop=True)
 
         final_count = len(df_primary)
         duplicates_removed = initial_count - final_count
@@ -381,6 +387,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
             )
 
         setattr(feed, fk_table, fk_df)
+
 
     final_count = len(getattr(feed, primary_table))
     duplicates_removed = initial_count - final_count
