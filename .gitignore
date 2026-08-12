@@ -5,3 +5,5 @@
 *.xlsx
 *.json
 *.db
+__pycache__/
+*.pyc

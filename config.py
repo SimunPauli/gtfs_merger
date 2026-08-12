@@ -17,7 +17,7 @@ GTFS_YEAR = 2018
 # ---------------------------------------------------------------------------
 GTFS_CLEAN_DATA_ROOT = Path("/home/simpal/O/sharing-trans-data/GTFS Data/CLEAN - GTFS DATA")
 GTFS_SHARE_ROOT = Path("/home/simpal/O/sharing-trans-data/GTFS Data")
-OTP_DATA_ROOT = Path("/home/simpal/otp/data/gtfs_data")
+OTP_DATA_ROOT = Path("/home/simpal/trip_choice_pipeline/otp_data/gtfs_data")
 
 # ---------------------------------------------------------------------------
 # Derived paths — shouldn't need editing
