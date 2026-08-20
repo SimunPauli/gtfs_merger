@@ -3,6 +3,7 @@ import copy
 from pathlib import Path
 import re
 import os
+import errno
 import warnings
 import tempfile
 from missing_shape_file import normalize_missing_shapes
@@ -17,6 +18,21 @@ cs.DTYPES["transfers"]["to_route_id"] = "string"
 cs.DTYPES["transfers"]["from_trip_id"] = "string"
 cs.DTYPES["transfers"]["to_trip_id"] = "string"
 cs.DTYPES["transfers"]["min_transfer_time"] = "Int32"
+
+def _ensure_dir(path: Path):
+	"""
+	mkdir that tolerates EINVAL: on network-backed mounts (rclone/cifs-style), a stale
+	VFS cache can make os.path.exists() report a directory missing right before mkdir
+	hits the real backend where it already exists, and the errno that surfaces through
+	the FUSE layer for "already exists" is often EINVAL rather than EEXIST. If mkdir
+	fails with EINVAL by there, treat it as success instead
+	of crashing a multi-hour merge run right at the export step.
+	"""
+	try:
+		path.mkdir(parents=True, exist_ok=True)
+	except OSError as e:
+		if e.errno != errno.EINVAL or not path.is_dir():
+			raise
 
 def main():
 	GTFS_TABLES = config.GTFS_TABLES
@@ -211,8 +227,10 @@ def main():
 
 	print("\nExporting combined GTFS feed to:")
 	print(f"  {gtfs_output_path}")
+	_ensure_dir(gtfs_output_path.parent)
 	combined_feed.to_file(gtfs_output_path)
 	print(f"  {otp_output_path}")
+	_ensure_dir(otp_output_path.parent)
 	combined_feed.to_file(otp_output_path)
 
 	print("\nExport complete!")
