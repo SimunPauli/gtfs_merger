@@ -151,6 +151,33 @@ def main():
 
 		del feed_to_merge
 
+	# Some feeds' transfers.txt reference a parent station (location_type=1)
+	# directly as from_stop_id/to_stop_id instead of a routable child stop.
+	# Since parent stations are dropped below, resolve those references to
+	# their child stop first -- but only where the parent has exactly one
+	# child, so we're not guessing at ambiguous multi-platform stations.
+	# feed_id+stop_id is used as the key because stop_id is only unique
+	# within a feed at this point (prefixing happens later, in dedup).
+	if "parent_station" in combined_feed.stops.columns and "location_type" in combined_feed.stops.columns:
+		child_stops = combined_feed.stops.loc[
+			combined_feed.stops["parent_station"].notna() & (combined_feed.stops["parent_station"] != "")
+		]
+		children_per_parent = child_stops.groupby(["feed_id", "parent_station"])["stop_id"].agg(list)
+		single_child_parents = children_per_parent[children_per_parent.map(len) == 1]
+		parent_to_child = {
+			key: children[0] for key, children in single_child_parents.items()
+		}
+
+		df_trans = combined_feed.transfers
+		resolved_count = 0
+		for col in ["from_stop_id", "to_stop_id"]:
+			keys = list(zip(df_trans["feed_id"], df_trans[col]))
+			resolved = pd.Series(keys, index=df_trans.index).map(parent_to_child)
+			resolved_count += resolved.notna().sum()
+			df_trans[col] = resolved.fillna(df_trans[col])
+		combined_feed.transfers = df_trans
+		print(f"Resolved {resolved_count} parent-station references in transfers.txt to their child stop")
+
 	#Merger can't handel parent stations (location_type=2)
 	#Therefor location_type!=1 are removed and parent_station column is removed.
 	if "parent_station" in combined_feed.stops.columns:
