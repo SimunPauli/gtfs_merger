@@ -5,19 +5,20 @@ Edit GTFS_YEAR and the base directories here; everything else is derived.
 Other modules should import from this file instead of hardcoding paths.
 """
 
+import os
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Year to build the combined feed for
 # ---------------------------------------------------------------------------
-GTFS_YEAR = 2018
+GTFS_YEAR = int(os.environ.get("GTFS_YEAR", 2022))
 
 # ---------------------------------------------------------------------------
 # Base directories — edit if the mount points / folder layout change
 # ---------------------------------------------------------------------------
 GTFS_CLEAN_DATA_ROOT = Path("/home/simpal/O/sharing-trans-data/GTFS Data/CLEAN - GTFS DATA")
 GTFS_SHARE_ROOT = Path("/home/simpal/O/sharing-trans-data/GTFS Data")
-OTP_DATA_ROOT = Path("/home/simpal/trip_choice_pipeline/otp_data/gtfs_data")
+OTP_DATA_ROOT = Path("/home/simpal/trip_choice_pipeline/otp_data")
 
 # ---------------------------------------------------------------------------
 # Derived paths — shouldn't need editing
@@ -25,9 +26,9 @@ OTP_DATA_ROOT = Path("/home/simpal/trip_choice_pipeline/otp_data/gtfs_data")
 GTFS_DATA_ROOT = GTFS_CLEAN_DATA_ROOT / str(GTFS_YEAR)
 GTFS_DATA_ROOT_PREV = GTFS_CLEAN_DATA_ROOT / str(GTFS_YEAR - 1)
 
-TEMP_DIR = OTP_DATA_ROOT / "tmp"
+TEMP_DIR = OTP_DATA_ROOT / str(GTFS_YEAR) / "tmp"
 
-OTP_OUTPUT_PATH = OTP_DATA_ROOT / f"GTFS_{GTFS_YEAR}.zip"
+OTP_OUTPUT_PATH = OTP_DATA_ROOT / str(GTFS_YEAR) / f"GTFS_{GTFS_YEAR}.zip"
 GTFS_OUTPUT_PATH = GTFS_SHARE_ROOT / f"GTFS_{GTFS_YEAR}.zip"
 
 # ---------------------------------------------------------------------------
