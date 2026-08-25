@@ -7,6 +7,7 @@ import errno
 import warnings
 import tempfile
 from missing_shape_file import normalize_missing_shapes
+from normalize_timezones import normalize_timezones
 from prefix_ids import apply_prefix_to_all_ids
 from ID_configuration import ID_CONFIG
 import gtfs_kit as gk
@@ -97,6 +98,7 @@ def main():
 		print(f"Reading GTFS file: {row['file']}")
 		feed = gk.feed.read_feed(row["path"], dist_units="m") # import feed
 		feed = normalize_missing_shapes(feed)
+		feed = normalize_timezones(feed)
 		gtfs_list[row["file"]] = feed
 
 	# Truncating all files
