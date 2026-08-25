@@ -8,7 +8,10 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
                      foreign_keys: List[Tuple[str, str]]) -> int:
     df_primary = getattr(feed, primary_table, None)
     if df_primary is None or df_primary.empty:
-        raise ValueError(f"Error: {primary_table} not found in feed")
+        if primary_table == "shapes":
+            print(f"No shape file in combined feed. If one feed actually has a shape file, there is a bug code when combining into one feed.")
+            return None
+        raise ValueError(f"{primary_table} not found in feed")
 
     initial_count = len(df_primary)
 
@@ -126,11 +129,16 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
             .drop_duplicates("trip_id")
             .drop(columns=["_stop_times_sig", "trip_sig"])
         )
-        df_trans = df_trans.drop_duplicates(
-            subset=["from_stop_id", "to_stop_id", "from_route_id", "to_route_id", "from_trip_id", "to_trip_id"],
-            keep="first"
-        )
-
+        if ("from_route_id" in df_trans.columns) and ("from_trip_id" in df_trans.columns):
+            df_trans = df_trans.drop_duplicates(
+                subset=["from_stop_id", "to_stop_id", "from_route_id", "to_route_id", "from_trip_id", "to_trip_id"],
+                keep="first"
+            )
+        else: #older gtfs feed only have from/to_stop_id
+            df_trans = df_trans.drop_duplicates(
+                subset=["from_stop_id", "to_stop_id"],
+                keep="first"
+            )
         df_primary = df_primary.drop(columns = ["block_id"], errors="ignore") #don't take block_id into account
 
         feed.trips = df_primary.reset_index(drop=True)
