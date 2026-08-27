@@ -35,6 +35,24 @@ def _ensure_dir(path: Path):
 		if e.errno != errno.EINVAL or not path.is_dir():
 			raise
 
+def _validate_stop_coordinates(feed, file_name):
+	"""
+	GTFS requires stop_lat/stop_lon to be WGS84 decimal degrees. Some DTU releases
+	have shipped stops in a projected CRS (e.g. UTM32N/ETRS89) instead, which silently
+	produces valid-looking numbers that only fail hours later inside OTP.
+	"""
+	bad = feed.stops.loc[
+		~feed.stops["stop_lat"].between(-90, 90) | ~feed.stops["stop_lon"].between(-180, 180)
+	]
+	if not bad.empty:
+		example = bad.iloc[0]
+		raise ValueError(
+			f"{file_name}: {len(bad)} stop(s) have stop_lat/stop_lon outside the valid "
+			f"WGS84 range (likely a projected CRS, not WGS84 degrees) -- e.g. "
+			f"stop_id={example['stop_id']!r} lat={example['stop_lat']} lon={example['stop_lon']}"
+		)
+
+
 def main():
 	GTFS_TABLES = config.GTFS_TABLES
 	GTFS_YEAR = config.GTFS_YEAR
@@ -99,6 +117,7 @@ def main():
 		feed = gk.feed.read_feed(row["path"], dist_units="m") # import feed
 		feed = normalize_missing_shapes(feed)
 		feed = normalize_timezones(feed)
+		_validate_stop_coordinates(feed, row["file"])
 		gtfs_list[row["file"]] = feed
 
 	# Truncating all files
@@ -239,6 +258,13 @@ def main():
 		df = getattr(combined_feed, table_name, None)
 		if df is not None and "feed_id" in df.columns:
 			setattr(combined_feed, table_name, df.drop(columns=["feed_id"]))
+
+	# Strip embedded double-quotes from stop text fields: a doubled-quote CSV escape
+	# (e.g. a literal " inside stop_name) has been observed to confuse OTP's CSV
+	# parser downstream, corrupting subsequent rows' fields.
+	for col in ("stop_name", "stop_desc"):
+		if col in combined_feed.stops.columns:
+			combined_feed.stops[col] = combined_feed.stops[col].str.replace('"', "", regex=False)
 
 	combined_feed.table_names = [
 		table_name
