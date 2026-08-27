@@ -333,6 +333,15 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         df_trans["from_stop_id"] = df_trans["from_stop_id_prefix"].map(id_to_canonical)
         df_trans["to_stop_id"] = df_trans["to_stop_id_prefix"].map(id_to_canonical)
         df_trans = df_trans.drop(columns=["from_stop_id_prefix", "to_stop_id_prefix"])
+
+        # Drop transfers referencing a stop that didn't survive to the final
+        # stops table (e.g. an ambiguous/childless parent station) -- OTP's
+        # GTFS reader rejects a blank from_stop_id/to_stop_id as invalid.
+        dangling = df_trans["from_stop_id"].isna() | df_trans["to_stop_id"].isna()
+        if dangling.any():
+            print(f"Warning: dropping {dangling.sum()} transfers.txt row(s) with unresolved stop_id")
+            df_trans = df_trans.loc[~dangling]
+
         setattr(feed, "transfers", df_trans)
 
         df_primary["stop_id"] = df_primary["stop_id_prefix_canonical"]
