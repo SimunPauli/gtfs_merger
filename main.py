@@ -1,7 +1,9 @@
 import pandas as pd
 import copy
 from pathlib import Path
-import re
+import zipfile
+import csv
+import io
 import os
 import errno
 import warnings
@@ -54,6 +56,40 @@ def _validate_stop_coordinates(feed, file_name):
 		)
 
 
+def _feed_earliest_service_date(path):
+	"""
+	Earliest date this GTFS release actually claims service for, read directly
+	from its own calendar.txt/calendar_dates.txt -- release filenames are not
+	used for this anywhere in this module, since DTU release filenames aren't
+	reliable (e.g. a file that looks like it's for 2016-02-03 has a calendar
+	that only starts 2016-03-03), which would otherwise cause
+	truncate_feed_to_date() to cut off the previous release's valid data
+	before this one has anything to replace it with.
+	Reads only calendar.txt/calendar_dates.txt (not the full feed) so it's
+	cheap enough to call on every candidate file before deciding which ones
+	are worth fully loading. Returns None if the feed has no usable calendar
+	data at all.
+	"""
+	candidates = []
+	with zipfile.ZipFile(path) as z:
+		names = set(z.namelist())
+		if "calendar.txt" in names:
+			with z.open("calendar.txt") as f:
+				reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8-sig"))
+				starts = [row["start_date"] for row in reader if row.get("start_date")]
+				if starts:
+					candidates.append(min(starts))
+		if "calendar_dates.txt" in names:
+			with z.open("calendar_dates.txt") as f:
+				reader = csv.DictReader(io.TextIOWrapper(f, encoding="utf-8-sig"))
+				dates = [row["date"] for row in reader if row.get("date")]
+				if dates:
+					candidates.append(min(dates))
+	if not candidates:
+		return None
+	return pd.to_datetime(min(candidates), format="%Y%m%d")
+
+
 def main():
 	GTFS_TABLES = config.GTFS_TABLES
 	GTFS_YEAR = config.GTFS_YEAR
@@ -72,41 +108,44 @@ def main():
 	# Recursively find zip files
 	gtfs_files = list(gtfs_data_root.rglob("*.zip"))
 
+	# Peek each candidate's own calendar.txt/calendar_dates.txt to rank
+	# releases by the date they actually take effect (see
+	# _feed_earliest_service_date). This is a cheap read (two small CSVs, not
+	# the full feed), so it's fine to do for every candidate up front, before
+	# deciding which ones are worth fully loading.
+	release_dates = {
+		path: _feed_earliest_service_date(path) for path in gtfs_files
+	}
 
-	# Extract YYYYMMDD from filename
-	def extract_date(path):
-		match = re.search(r"\d{8}", path.name)
-		return pd.to_datetime(match.group(), format="%Y%m%d") if match else None
-
-
-	# Also get the last file from previous year if it exists
+	# Of the previous year's releases, keep only the one that's most recently
+	# in effect -- it's the one covering the transition into this year.
 	gtfs_data_root_prev = config.GTFS_DATA_ROOT_PREV
 	if gtfs_data_root_prev.is_dir():
 		gtfs_files_prev = list(gtfs_data_root_prev.rglob("*.zip"))
-		if gtfs_files_prev:
-			# Sort and get the last file from previous year
-			gtfs_files_prev_sorted = sorted(gtfs_files_prev, key=extract_date)
-			last_prev_file = gtfs_files_prev_sorted[-1]
-			gtfs_files.insert(0, last_prev_file)
-			print(f"Added last file from {GTFS_YEAR - 1}: {last_prev_file.name}")
+		prev_release_dates = {
+			path: _feed_earliest_service_date(path) for path in gtfs_files_prev
+		}
+		prev_release_dates = {p: d for p, d in prev_release_dates.items() if d is not None}
+		if prev_release_dates:
+			last_prev_file = max(prev_release_dates, key=prev_release_dates.get)
+			gtfs_files.append(last_prev_file)
+			release_dates[last_prev_file] = prev_release_dates[last_prev_file]
+			print(f"Added last file from {GTFS_YEAR - 1}: {last_prev_file.name} "
+			      f"(in effect from {prev_release_dates[last_prev_file].date()})")
 
 	gtfs_release = (
 		pd.DataFrame({
 			"path": gtfs_files,
 			"file": [p.name for p in gtfs_files],
-			"date": [extract_date(p) for p in gtfs_files],
+			"date": [release_dates[p] for p in gtfs_files],
 		})
 		.dropna(subset=["date"])
 		.sort_values("date")
 		.reset_index(drop=True)
-		.assign(
-			date_end=lambda d: d["date"].shift(-1),
-			date_days=lambda d: (d["date"] - pd.Timestamp("1970-01-01")).dt.days,
-			date_end_days=lambda d: (d["date_end"] - pd.Timestamp("1970-01-01")).dt.days,
-		)
+		.assign(date_end=lambda d: d["date"].shift(-1))
 	)
 	if gtfs_release.empty:
-	    raise RuntimeError("No GTFS files found. Check gtfs_data_root.")
+	    raise RuntimeError("No GTFS file has usable calendar data. Check gtfs_data_root.")
 
 	print(f"Total number GTFS files: {len(gtfs_release)}")
 
@@ -124,7 +163,7 @@ def main():
 	# Truncating all files
 	from truncate_calendar_date import truncate_feed_to_date, truncate_feed_to_date_range
 
-	print("\nTruncating all feeds to the date before next feed release:")
+	print("\nTruncating all feeds to the date before the next release actually takes effect:")
 	for i, row in gtfs_release.iterrows():
 		file_key = row["file"]
 		cutoff = row["date_end"]
