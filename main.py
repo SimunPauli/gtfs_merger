@@ -10,6 +10,7 @@ from missing_shape_file import normalize_missing_shapes
 from normalize_timezones import normalize_timezones
 from prefix_ids import apply_prefix_to_all_ids
 from ID_configuration import ID_CONFIG
+from validate_feeds import validate_feeds_in_dir
 import gtfs_kit as gk
 from gtfs_kit import constants as cs
 import config
@@ -289,6 +290,19 @@ def main():
 	combined_feed.to_file(otp_output_path)
 
 	print("\nExport complete!")
+
+	print("\nValidating merged GTFS feed with the GTFS Validator CLI:")
+	validation_results = validate_feeds_in_dir(
+		otp_output_path.parent,
+		config.VALIDATION_OUTPUT_PATH,
+		country_code="dk",
+	)
+	total_errors = sum(r["errors"] for r in validation_results.values())
+	if total_errors:
+		raise RuntimeError(
+			f"GTFS Validator found {total_errors} error-level notice(s) in the merged feed -- "
+			f"see {config.VALIDATION_OUTPUT_PATH} for the full report before using this feed."
+		)
 
 if __name__ == "__main__":
 	main()
