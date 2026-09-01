@@ -243,12 +243,20 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         lat_threshold = 0.000898
         lon_threshold = 0.00161
 
+        # Rejseplan sometimes re-emits the exact same physical stop across feed
+        # releases with a different number of trailing "G"s appended to the
+        # stop_id (e.g. "...8600669G" and "...8600669GG" both being "Helsingør
+        # St." at the same coordinates). Group on the G-stripped id so these
+        # collapse into one canonical stop instead of surviving as duplicate
+        # stops with the same name at (near-)identical locations.
+        df_primary["stop_id_base"] = df_primary["stop_id"].str.rstrip("G")
+
         max_lat_delta = (
-            df_primary.groupby("stop_id", sort=False)["stop_lat"]
+            df_primary.groupby("stop_id_base", sort=False)["stop_lat"]
             .transform(lambda x: (x.mean() - x).abs().max())  # stop distance from average coordinate
         )
         max_lon_delta = (
-            df_primary.groupby("stop_id", sort=False)["stop_lon"]
+            df_primary.groupby("stop_id_base", sort=False)["stop_lon"]
             .transform(lambda x: (x.mean() - x).abs().max())
         )
         df_primary["stable_loc"] = (max_lat_delta < lat_threshold) & (
@@ -256,14 +264,14 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
 
         stable_means = (
             df_primary.loc[df_primary["stable_loc"]]
-            .groupby("stop_id", as_index=True, sort=False)[["stop_lat", "stop_lon"]]
+            .groupby("stop_id_base", as_index=True, sort=False)[["stop_lat", "stop_lon"]]
             .mean()
         )
 
         # write back means only for stable rows
         stable_mask = df_primary["stable_loc"]
-        df_primary.loc[stable_mask, "stop_lat"] = df_primary.loc[stable_mask, "stop_id"].map(stable_means["stop_lat"])
-        df_primary.loc[stable_mask, "stop_lon"] = df_primary.loc[stable_mask, "stop_id"].map(stable_means["stop_lon"])
+        df_primary.loc[stable_mask, "stop_lat"] = df_primary.loc[stable_mask, "stop_id_base"].map(stable_means["stop_lat"])
+        df_primary.loc[stable_mask, "stop_lon"] = df_primary.loc[stable_mask, "stop_id_base"].map(stable_means["stop_lon"])
 
         # warning flags
         unstable_mask = ~df_primary['stable_loc']
@@ -289,9 +297,11 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
 
         # Can't use canonical_df as with other, as stop_id is not prefix beforehand.
         # Not prefixed because stop_id is more stable across feeds, but within 100m.
+        # Grouped on stop_id_base (not stop_id) so the trailing-G duplicates
+        # above collapse to the same canonical stop.
         df_primary["stop_id_prefix_canonical"] = (
             df_primary
-            .groupby(["stop_id", "stop_lat", "stop_lon"], sort=False)["stop_id_prefix"]
+            .groupby(["stop_id_base", "stop_lat", "stop_lon"], sort=False)["stop_id_prefix"]
             .transform("min")
         )
         id_to_canonical = (
@@ -350,7 +360,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
             errors="ignore"
         )
         df_primary = df_primary.drop_duplicates(subset=use_identity_cols + ["stop_id"], keep="first")
-        df_primary = df_primary.drop(columns=["stop_id_prefix", "stop_id_prefix_canonical"])
+        df_primary = df_primary.drop(columns=["stop_id_prefix", "stop_id_prefix_canonical", "stop_id_base"])
         setattr(feed, primary_table, df_primary)
 
         final_count = len(df_primary)
