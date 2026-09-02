@@ -306,18 +306,6 @@ def main():
 		if col in combined_feed.stops.columns:
 			combined_feed.stops[col] = combined_feed.stops[col].str.replace('"', "", regex=False)
 
-	# agency_url is a required GTFS field, but some Rejseplan releases ship a bare
-	# scheme with no host (e.g. "http://") for smaller/late-added agencies.
-	# The URL's actual content isn't used downstream (OTP doesn't read it),
-	# so rather than guess a real website, swap malformed values for IANA's
-	# reserved documentation domain -- syntactically valid, satisfies the
-	# validator, and obviously not a real endpoint.
-	if "agency_url" in combined_feed.agency.columns:
-		bad_url = ~combined_feed.agency["agency_url"].str.match(r"^https?://[^/]+", na=True)
-		if bad_url.any():
-			print(f"  Replacing {bad_url.sum()} malformed agency_url value(s) with placeholder")
-			combined_feed.agency.loc[bad_url, "agency_url"] = "http://example.com"
-
 	combined_feed.table_names = [
 		table_name
 		for table_name in GTFS_TABLES

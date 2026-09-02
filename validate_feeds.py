@@ -19,6 +19,12 @@ import config
 
 DEFAULT_JAR = config.GTFS_VALIDATOR_JAR
 
+# The CLI has no flag to disable individual rules, so unwanted notices are
+# dropped here instead. agency_url is required by the spec but unused by OTP
+# and by us, and Rejseplan ships enough malformed values (bare schemes,
+# unencoded non-ASCII paths) that validating it is pure noise.
+IGNORED_NOTICE_CODES = {"invalid_url"}
+
 
 def validate_feeds_in_dir(
 	directory: Path,
@@ -62,15 +68,19 @@ def validate_feeds_in_dir(
 		subprocess.run(cmd, check=False)
 
 		report_path = feed_output / "report.json"
-		errors = warnings = 0
+		errors = warnings = ignored = 0
 		if report_path.exists():
 			report = json.loads(report_path.read_text())
 			for notice in report.get("notices", []):
 				count = notice.get("totalNotices", 0)
-				if notice.get("severity") == "ERROR":
+				if notice.get("code") in IGNORED_NOTICE_CODES:
+					ignored += count
+				elif notice.get("severity") == "ERROR":
 					errors += count
 				elif notice.get("severity") == "WARNING":
 					warnings += count
+			if ignored:
+				print(f"  Ignoring {ignored} notice(s) with codes {sorted(IGNORED_NOTICE_CODES)}")
 		else:
 			print(f"  WARNING: no report.json produced for {feed_path.name} -- validator likely crashed")
 
