@@ -10,6 +10,7 @@ import warnings
 import tempfile
 from missing_shape_file import normalize_missing_shapes
 from normalize_timezones import normalize_timezones
+from content_address_blocks import content_address_block_ids
 from prefix_ids import apply_prefix_to_all_ids
 from ID_configuration import ID_CONFIG
 from validate_feeds import validate_feeds_in_dir
@@ -157,6 +158,7 @@ def main():
 		feed = gk.feed.read_feed(row["path"], dist_units="m") # import feed
 		feed = normalize_missing_shapes(feed)
 		feed = normalize_timezones(feed)
+		feed = content_address_block_ids(feed)  # before truncation: hash the block as published
 		_validate_stop_coordinates(feed, row["file"])
 		gtfs_list[row["file"]] = feed
 

@@ -54,7 +54,7 @@ ID_CONFIG = {
 
     "trips": {
         "id_col": "trip_id",
-        "identity_cols": ["route_id", "shape_id", "service_id", "trip_headsign", "direction_id"], #should "service_id" be dropped?
+        "identity_cols": ["route_id", "shape_id", "service_id", "trip_headsign", "direction_id", "block_id"], #should "service_id" be dropped?
         "foreign_keys": [
             ("stop_times", "trip_id"),
             ("transfers", "from_trip_id"),

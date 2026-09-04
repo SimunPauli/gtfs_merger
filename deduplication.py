@@ -88,8 +88,14 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         df_st = df_st.drop(columns=["_pos","_row_sig"])  # save memory
         df_primary["_stop_times_sig"] = df_primary["trip_id"].map(pattern)
 
+        # block_id is content-addressed (content_address_blocks.py), so it is equal
+        # across feeds exactly when the block is. Including it keeps trips of
+        # different blocks from collapsing into one canonical trip.
+        trip_sig_cols = ["route_id", "service_id", "direction_id", "shape_id", "_stop_times_sig"]
+        if "block_id" in df_primary.columns:
+            trip_sig_cols.append("block_id")
         df_primary["trip_sig"] = pd.util.hash_pandas_object(
-            df_primary[["route_id", "service_id", "direction_id", "shape_id", "_stop_times_sig"]],
+            df_primary[trip_sig_cols],
             index=False
         )
 
@@ -102,8 +108,6 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
             df_primary.set_index("trip_id")["trip_sig"]
             .map(canonical)
         )
-
-        #Should it handel block_id?? Planning on removing block_id
 
         df_primary["trip_id"] = df_primary["trip_id"].map(trip_map)
         df_st["trip_id"] = df_st["trip_id"].map(trip_map)
@@ -139,7 +143,6 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
                 subset=["from_stop_id", "to_stop_id"],
                 keep="first"
             )
-        df_primary = df_primary.drop(columns = ["block_id"], errors="ignore") #don't take block_id into account
 
         feed.trips = df_primary.reset_index(drop=True)
         feed.stop_times = df_st.reset_index(drop=True)
