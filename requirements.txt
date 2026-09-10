@@ -1,6 +1,8 @@
 branca==0.8.2
 certifi==2026.7.22
+cffi==2.1.1
 charset-normalizer==3.5.1
+cryptography==50.0.1
 folium==0.20.0
 geopandas==1.1.4
 gtfs-kit==12.3.1
@@ -11,8 +13,13 @@ MarkupSafe==3.0.3
 numpy==2.5.2
 packaging==26.3
 pandas==3.0.5
+pdfminer.six==20260107
+pdfplumber==0.11.10
+pillow==12.3.0
+pycparser==3.0
 pyogrio==0.13.0
 pyproj==3.7.2
+pypdfium2==5.13.0
 python-dateutil==2.9.0.post0
 requests==2.34.2
 rtree==1.4.1
