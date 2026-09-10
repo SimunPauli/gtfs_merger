@@ -94,6 +94,9 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         trip_sig_cols = ["route_id", "service_id", "direction_id", "shape_id", "_stop_times_sig"]
         if "block_id" in df_primary.columns:
             trip_sig_cols.append("block_id")
+        #DSB is missing block_id. Use trip_short_name (tognummer) instead
+        
+
         df_primary["trip_sig"] = pd.util.hash_pandas_object(
             df_primary[trip_sig_cols],
             index=False

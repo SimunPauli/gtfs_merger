@@ -19,7 +19,7 @@ GTFS_YEAR = int(os.environ.get("GTFS_YEAR", 2022))
 GTFS_CLEAN_DATA_ROOT = Path("/home/simpal/O/sharing-trans-data/GTFS Data/CLEAN - GTFS DATA")
 GTFS_SHARE_ROOT = Path("/home/simpal/O/sharing-trans-data/GTFS Data")
 OTP_DATA_ROOT = Path("/home/simpal/trip_choice_pipeline/otp_data")
-GTFS_VALIDATOR_JAR = Path(__file__).parent / "gtfs-validator" / "gtfs-validator-7.1.0-cli.jar"
+GTFS_VALIDATOR_JAR = Path(__file__).parent.parent / "gtfs-validator" / "gtfs-validator-7.1.0-cli.jar"
 
 # ---------------------------------------------------------------------------
 # Derived paths — shouldn't need editing
