@@ -146,6 +146,8 @@ def extract(pdf_path=PDF_PATH):
                         continue
                     rec = {"page_num": page_num, "side": side, "col_index": col_i}
                     for j, val in enumerate(entries, start=1):
+                        if val == "G": #"G" is symbol of "børneguide" (irrelevant)
+                            continue
                         rec[f"train_names_{j}"] = val
                     rec["n_train_names"] = sum(1 for val in entries if val)
                     rec["has_transfer"] = bool(transfers[col_i])
