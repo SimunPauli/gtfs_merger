@@ -6,7 +6,7 @@ import pandas as pd
 
 from geometry import iter_half_pages, rule_ys, cluster, x_mid, rows_overlap
 
-PDF_PATH = "tmp/dsb-k25--icoglyn-.pdf"
+PDF_PATH = "/home/simpal/trip_choice_pipeline/gtfs_merger/tmp/dsb-k16--icoglyn-.pdf"
 
 # --- tunables (all in PDF points) ---------------------------------------
 BAND_X_TOLERANCE     = 3.0   # merge "RA 5905" / "i 4105" into one word
@@ -28,7 +28,7 @@ def find_tognummer_bands(half, ys, pad=2):
             if not above or not below:
                 continue
             bands.append((max(above), min(below), w))
-    return bands
+    return sorted(bands, key=lambda b: b[0])
 
 
 # --- working out where the columns are ----------------------------------
@@ -41,9 +41,11 @@ def centers_from_times(half, body_top, body_bottom):
     return cluster(mids, COLUMN_TOL)
 
 
-def centers_from_koredage(half):
-    """Fallback: the operating-days row, one token per column."""
-    words = half.extract_words(x_tolerance=1.5)
+def centers_from_koredage(half, body_top, body_bottom):
+    """Fallback: the operating-days row, one token per column. Scoped to this
+    table's body — a half can hold two tables, each with its own "køredage" row."""
+    x0, _, x1, _ = half.bbox
+    words = half.within_bbox((x0, body_top, x1, body_bottom)).extract_words(x_tolerance=1.5)
     kd = next((w for w in words if w["text"].strip().lower() == "køredage"), None)
     if kd is None:
         return []
@@ -119,19 +121,22 @@ def extract(pdf_path=PDF_PATH):
                 skipped.append((page_num, side, "no horizontal rules"))
                 continue
 
+            prev_bottom = ys[0]
             for top, bottom, label in find_tognummer_bands(half, ys):
-                centers = centers_from_times(half, ys[0], top) or centers_from_koredage(half)
+                centers = centers_from_times(half, prev_bottom, top) or centers_from_koredage(half, prev_bottom, top)
                 if not centers:
                     skipped.append((page_num, side, "no columns found"))
+                    prev_bottom = bottom
                     continue
 
                 matrix = band_matrix(half, top, bottom, label["x1"], centers)
                 if not matrix:
                     skipped.append((page_num, side, "empty band"))
+                    prev_bottom = bottom
                     continue
 
                 transfers = defaultdict(list)
-                for c, station in transfer_marks(half, ys[0], top, centers):
+                for c, station in transfer_marks(half, prev_bottom, top, centers):
                     if station and station not in transfers[c]:
                         transfers[c].append(station)
 
@@ -148,6 +153,8 @@ def extract(pdf_path=PDF_PATH):
                     rec["transfer_stations"] = "; ".join(transfers[col_i])
                     records.append(rec)
 
+                prev_bottom = bottom
+
     df = pd.DataFrame(records)
     name_cols = sorted(
         [c for c in df.columns if c.startswith("train_names_")],
@@ -158,7 +165,7 @@ def extract(pdf_path=PDF_PATH):
     return df, skipped
 
 
-if __name__ == "__main__":
-    df, skipped = extract()
-    print(df.head(20))
-    print(f"\n{len(skipped)} halves skipped:", skipped[:10])
+
+df, skipped = extract()
+print(df.head(20))
+print(f"\n{len(skipped)} halves skipped:", skipped[:10])
