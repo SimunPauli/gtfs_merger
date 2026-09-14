@@ -11,7 +11,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 # Year to build the combined feed for
 # ---------------------------------------------------------------------------
-GTFS_YEAR = int(os.environ.get("GTFS_YEAR", 2022))
+GTFS_YEAR = int(os.environ.get("GTFS_YEAR"))
 
 # ---------------------------------------------------------------------------
 # Base directories — edit if the mount points / folder layout change
