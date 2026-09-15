@@ -16,6 +16,8 @@ ROW_TOL              = 3.0   # group words belonging to the same printed line
 MIN_RULE_LEN         = 20    # ignore short horizontal marks
 
 TIME_RE = re.compile(r"^\d{1,2}\.\d{2}$")
+FOOTNOTE_RE = re.compile(r"^([a-z])\s+(.*)$")
+MARK_GAP_MAX = 2.0   # max gap between a time and its trailing transfer mark, in points
 
 
 # --- locating the Tognummer band ----------------------------------------
@@ -77,8 +79,47 @@ def band_matrix(half, top, bottom, label_x1, centers):
 STATION_STRIP = re.compile(r"\s+a$")   # trailing arrival marker, e.g. "Fredericia a"
 
 
-def transfer_marks(half, body_top, body_bottom, centers):
-    """[(col_index, station), ...] for every 's' (togskifte) in the body."""
+def _is_footnote_noise(text):
+    """A footnote reference (digit, or single letter other than the arrival marker
+    "a") that sits left of column 1 and would otherwise leak into the station label,
+    e.g. "Hjørring a b" (arrival marker "a" + a togskifte-letter footnote "b")."""
+    t = text.strip()
+    return t.isdigit() or (len(t) == 1 and t.islower() and t != "a")
+
+
+def togskifte_footnote_letters(half, table_bottom):
+    """Single-letter footnotes below the table (e.g. "a togskifte 1-5") whose text
+    mentions "togskifte" - a day-conditional transfer, printed as a letter suffix on
+    a time instead of the plain 's' mark. Other single-letter footnotes exist too
+    (e.g. "vognskifte", a same-train carriage change) and are deliberately excluded."""
+    x0, _, x1, half_bottom = half.bbox
+    words = half.within_bbox((x0, table_bottom, x1, half_bottom)).extract_words(x_tolerance=1.5)
+    if not words:
+        return set()
+
+    line_ys = cluster([w["top"] for w in words], ROW_TOL)
+    lines = defaultdict(list)
+    for w in words:
+        r = min(range(len(line_ys)), key=lambda i: abs(line_ys[i] - w["top"]))
+        lines[r].append(w)
+
+    letters = set()
+    for ws in lines.values():
+        text = " ".join(w["text"] for w in sorted(ws, key=lambda w: w["x0"]))
+        m = FOOTNOTE_RE.match(text)
+        if m and "togskifte" in m.group(2).lower():
+            letters.add(m.group(1))
+    return letters
+
+
+STAR_MARK = "★"   # display form of the plain 's' (unconditional togskifte star icon)
+
+
+def transfer_marks(half, body_top, body_bottom, centers, transfer_letters=frozenset()):
+    """[(col_index, station, mark), ...] for every togskifte mark in the body: the
+    plain star icon (STAR_MARK) or a footnote letter confirmed by
+    togskifte_footnote_letters(), e.g. "a" (look up that page's footnote for the
+    day-restriction, since it's otherwise treated the same as an unconditional one)."""
     x0, _, x1, _ = half.bbox
     words = half.within_bbox((x0, body_top, x1, body_bottom)).extract_words(x_tolerance=TRANSFER_X_TOLERANCE)
     if not words:
@@ -91,22 +132,29 @@ def transfer_marks(half, body_top, body_bottom, centers):
         rows[r].append(w)
 
     label_cut = centers[0] - COLUMN_TOL * 2      # everything left of column 1 is the station label
+    mark_texts = {"s"} | transfer_letters
     found = []
 
     for ws in rows.values():
-        label_words = sorted((w for w in ws if x_mid(w) < label_cut), key=lambda w: w["x0"])
+        label_words = sorted(
+            (w for w in ws if x_mid(w) < label_cut and not _is_footnote_noise(w["text"])),
+            key=lambda w: w["x0"],
+        )
         station = STATION_STRIP.sub("", " ".join(w["text"] for w in label_words).strip())
 
         times = [w for w in ws if TIME_RE.match(w["text"].strip())]
-        marks = [w for w in ws if w["text"].strip() == "s"]
+        marks = [w for w in ws if x_mid(w) >= label_cut and w["text"].strip() in mark_texts]
 
         for m in marks:
             preceding = [t for t in times if t["x1"] <= m["x0"] + 1]
             if not preceding:
                 continue
-            t = max(preceding, key=lambda t: t["x1"])          # the time this 's' belongs to
+            t = max(preceding, key=lambda t: t["x1"])          # the time this mark belongs to
+            if m["x0"] - t["x1"] > MARK_GAP_MAX:                # too far away to be glued to this time
+                continue
             c = min(range(len(centers)), key=lambda i: abs(centers[i] - x_mid(t)))
-            found.append((c, station))
+            mark = m["text"].strip()
+            found.append((c, station, STAR_MARK if mark == "s" else mark))
 
     return found
 
@@ -120,6 +168,8 @@ def extract(pdf_path=PDF_PATH):
             if not ys:
                 skipped.append((page_num, side, "no horizontal rules"))
                 continue
+
+            transfer_letters = togskifte_footnote_letters(half, ys[-1])
 
             prev_bottom = ys[0]
             for top, bottom, label in find_tognummer_bands(half, ys):
@@ -135,10 +185,10 @@ def extract(pdf_path=PDF_PATH):
                     prev_bottom = bottom
                     continue
 
-                transfers = defaultdict(list)
-                for c, station in transfer_marks(half, prev_bottom, top, centers):
-                    if station and station not in transfers[c]:
-                        transfers[c].append(station)
+                transfers = defaultdict(list)   # col_index -> [(station, mark), ...]
+                for c, station, mark in transfer_marks(half, prev_bottom, top, centers, transfer_letters):
+                    if station and station not in (s for s, _ in transfers[c]):
+                        transfers[c].append((station, mark))
 
                 for col_i in range(len(centers)):
                     entries = [row[col_i] for row in matrix]
@@ -152,7 +202,8 @@ def extract(pdf_path=PDF_PATH):
                     rec["n_train_names"] = sum(1 for val in entries if val)
                     rec["has_transfer"] = bool(transfers[col_i])
                     rec["n_transfers"] = len(transfers[col_i])
-                    rec["transfer_stations"] = "; ".join(transfers[col_i])
+                    rec["transfer_stations"] = "; ".join(s for s, _ in transfers[col_i])
+                    rec["transfer_marks"] = "; ".join(m for _, m in transfers[col_i])
                     records.append(rec)
 
                 prev_bottom = bottom
@@ -162,12 +213,15 @@ def extract(pdf_path=PDF_PATH):
         [c for c in df.columns if c.startswith("train_names_")],
         key=lambda c: int(c.split("_")[-1]),
     )
-    meta = ["n_train_names", "has_transfer", "n_transfers", "transfer_stations"]
+    meta = ["n_train_names", "has_transfer", "n_transfers", "transfer_stations", "transfer_marks"]
     df = df[["page_num", "side", "col_index"] + name_cols + meta].fillna("")
     return df, skipped
 
 
 
-df, skipped = extract()
-print(df.head(20))
-print(f"\n{len(skipped)} halves skipped:", skipped[:10])
+if __name__ == "__main__":
+    import sys
+    path = sys.argv[1] if len(sys.argv) > 1 else PDF_PATH
+    df, skipped = extract(path)
+    print(df.head(20))
+    print(f"\n{len(skipped)} halves skipped:", skipped[:10])
