@@ -51,6 +51,9 @@ directly in `src/config.py`. The two things that normally need changing:
     OTP's `build-config.json` consumes
   - `GTFS_VALIDATOR_JAR` — path to the GTFS Validator CLI jar (bundled under
     `gtfs-validator/`)
+- `DSB_PAIRS_PATH` — the DSB stay-seated pairs table (`gtfs_merger/dsb_stay_seated_pairs.csv`),
+  rebuilt from the Tognummer PDFs whenever they change; see
+  [DSB stay-seated transfers](#dsb-stay-seated-transfers)
 
 Everything else in `config.py` (derived paths, the GTFS table list, which tables get
 deduplicated) is derived from those and shouldn't normally need editing.
@@ -106,7 +109,10 @@ For a given `GTFS_YEAR`, `src/main.py` runs the following pipeline:
    - `agency`/`routes`: generic dedup directly on identity columns.
 8. **Finalize**: drop the `feed_id` helper column from every table, strip stray
    embedded double-quotes from `stop_name`/`stop_desc` (observed to confuse OTP's
-   CSV parser downstream), and drop any table that ended up empty.
+   CSV parser downstream), and drop any table that ended up empty. Before that,
+   DSB stay-seated transfers are added to `transfers.txt` as `transfer_type=4` rows
+   (see [DSB stay-seated transfers](#dsb-stay-seated-transfers)), with a per-pair
+   report at `OTP_DATA_ROOT/<year>/dsb_transfers_report.csv`.
 9. **Export** the combined feed to both `GTFS_SHARE_ROOT/GTFS_<year>.zip` (general
    sharing) and `OTP_DATA_ROOT/<year>/GTFS_<year>.zip` (consumed by OTP).
 10. **Validate** the exported feed with MobilityData's GTFS Validator CLI
@@ -114,6 +120,93 @@ For a given `GTFS_YEAR`, `src/main.py` runs the following pipeline:
     (`invalid_url` is ignored — Rejseplan ships enough malformed `agency_url`
     values that it's pure noise); the full report is written under
     `OTP_DATA_ROOT/<year>/validation/`.
+
+---
+
+## DSB stay-seated transfers
+
+DSB trains often change train number (tognummer) without passengers leaving their
+seat: a train is renumbered, or wagon sets are coupled or split at a station (e.g.
+914 from Sønderborg is coupled onto 14 at Fredericia). Rejseplan's GTFS has no
+`block_id` for DSB, and `block_id` can't express coupling/splitting anyway, so these
+joins are written as `transfers.txt` rows with `transfer_type=4` (in-seat transfer)
+between the two trips, with `from_stop_id`/`to_stop_id` set to the joining station.
+
+It's a two-step process:
+
+1. **PDF → pairs** (`dsb_tognummer/build_lookup_table.py`, run by hand when the PDFs
+   change). Parses DSB's yearly Tognummer timetable PDFs (`DSB_YYYYMMDD_YYYYMMDD.pdf`:
+   first date = edition start, second = last day used) into
+   `dsb_stay_seated_pairs.csv`: one row per `from_tognummer → to_tognummer` pair per
+   edition, with its `kind` (renumbering/coupling/splitting), the edition's
+   `valid_from`/`valid_to`, and one True/False column per weekday saying on which
+   weekdays the PDF has the pair as stay-seated (not a togskifte/transfer).
+   ```bash
+   python -m dsb_tognummer.build_lookup_table DSB_timetable_pdf dsb_stay_seated_pairs.csv
+   ```
+2. **Pairs → transfers** (`dsb_tognummer/gtfs_transfers.py`, run by `main.py` before
+   export, or standalone on an already merged zip). The PDF only gives train
+   numbers and weekdays; the merged feed decides which trips and dates, one date at a
+   time. Train numbers are matched on the last 4 digits of `trip_short_name` (DSB
+   pads them, e.g. `070014` = train 14), for DSB and Arriva/GoCollective rail trips.
+   ```bash
+   python -m dsb_tognummer.gtfs_transfers dsb_stay_seated_pairs.csv <merged_zip> <output_zip>
+   ```
+
+**Adding transfers to an already merged feed** (no re-merge needed), from `gtfs_merger/`:
+
+```bash
+mkdir -p ../otp_data/2024/with_dsb   # a separate folder: output must differ from input
+python -m dsb_tognummer.gtfs_transfers dsb_stay_seated_pairs.csv \
+    ../otp_data/2024/GTFS_2024.zip ../otp_data/2024/with_dsb/GTFS_2024.zip
+GTFS_YEAR=2024 python src/validate_feeds.py ../otp_data/2024/with_dsb ../otp_data/2024/with_dsb/validation
+```
+
+(`../otp_data` is the repo's `otp_data`, i.e. `OTP_DATA_ROOT`.) The validator checks every zip in the folder
+and needs `GTFS_YEAR` set only because it imports `config.py`. Expect no new errors,
+only `transfer_with_suspicious_mid_trip_in_seat` warnings for couplings/splits. If it
+looks right, move the new zip over the original and rebuild that year's OTP graph.
+
+**Terms used in the code and report:**
+
+- **Marked date** — a date on which the PDFs say the pair is stay-seated: it lies
+  within the validity window of an edition listing the pair, *and* that edition's
+  weekday column for the pair is True. Example: 914→14 listed in edition 2024–25
+  with Monday–Friday True — Wednesday 12 March 2025 is marked; Saturday 15 March
+  2025 is unmarked (weekday False), and so is any date in an edition that doesn't
+  list 914→14.
+- **Connects** — on a given date, a trip carrying the from-number arrives at a
+  station that a trip carrying the to-number departs from 0–60 minutes later, and
+  that station ends the from-trip or starts the to-trip. Each from-trip takes its
+  closest to-trip, then each to-trip its closest from-trip.
+- **Mixed dates** — a `transfers.txt` row has no dates: it links one trip to another
+  and holds on every date both trips run. A trip pair has mixed dates when it
+  connects on some marked *and* some unmarked dates, e.g. a 14 trip running
+  Monday–Saturday where the PDF says stay-seated Monday–Friday but a togskifte on
+  Saturday. Such a trip pair is written if it connects on more marked than unmarked
+  dates (so OTP also allows staying seated on those unmarked dates) and dropped
+  otherwise (so its few marked dates get no in-seat transfer). Both counts are
+  printed during the run.
+
+**Report** (`dsb_transfers_report.csv`), one row per pair per edition:
+`marked_days` (marked dates within the feed), `connected_days` (marked dates on which
+the pair connects), `trip_pairs_written` (`transfers.txt` rows for it). A pair with
+no rows typically means its two numbers never run on the same day (the PDF stacks
+alternative numbers, e.g. 13 on weekdays / 3213 at weekends), never meet, or run
+under different numbers in GTFS.
+
+**Known limits:**
+
+- Trains running under temporary numbers during planned works (e.g. 40 as 340 or
+  1040) aren't matched, so those dates get no rows — the main reason coverage is
+  low in 2017–2020.
+- Weekday restrictions printed partway down a PDF column, and footnote date ranges,
+  aren't parsed; GTFS decides the dates instead.
+- The 1–2 weeks of the next edition in December's GTFS are matched against that
+  edition's pairs.
+- In-seat transfers not at the end of the from-trip or the start of the to-trip
+  (couplings/splits) give the GTFS Validator's
+  `transfer_with_suspicious_mid_trip_in_seat` warning; OTP supports them.
 
 ---
 
@@ -131,7 +224,7 @@ For a given `GTFS_YEAR`, `src/main.py` runs the following pipeline:
 | `src/missing_shape_file.py` | Normalizes feeds that ship no `shapes.txt` |
 | `src/normalize_timezones.py` | Collapses CET timezone-name aliases to `Europe/Copenhagen` |
 | `src/validate_feeds.py` | Wraps the GTFS Validator CLI jar; used both standalone and at the end of `main.py` |
-| `src/read_dsb_tognummer/` | Standalone PDF-table extractor for DSB Tognummer (train-number) timetables — not part of the merge pipeline itself; exercised by `test_pdfplumber_tognummer.ipynb` |
+| `dsb_tognummer/` | Sibling to `src/`: parses DSB's Tognummer timetable PDFs into stay-seated tognummer pairs (`build_lookup_table.py`, run by hand), and writes them as `transfer_type=4` rows into the merged feed (`gtfs_transfers.py`, called from `main.py`); see [DSB stay-seated transfers](#dsb-stay-seated-transfers). PDF parsing is exercised by `test_pdfplumber_tognummer.ipynb` |
 
 `src/prefix_conflicting_ids.py` and `ID_configuration.py`'s `ID_CONFIG_service_id`
 are earlier, unused versions of `prefix_ids.py`/`ID_CONFIG` kept around but not
