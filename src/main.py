@@ -8,6 +8,7 @@ import os
 import errno
 import warnings
 import tempfile
+import sys
 from missing_shape_file import normalize_missing_shapes
 from normalize_timezones import normalize_timezones
 from content_address_blocks import content_address_block_ids
@@ -17,6 +18,8 @@ from validate_feeds import validate_feeds_in_dir
 import gtfs_kit as gk
 from gtfs_kit import constants as cs
 import config
+sys.path.append(str(Path(__file__).parent.parent))  # dsb_tognummer/ lives beside src/
+from dsb_tognummer.gtfs_transfers import add_stay_seated_transfers
 cs.DTYPES.setdefault("transfers", {})
 cs.DTYPES["transfers"]["from_route_id"] = "string"
 cs.DTYPES["transfers"]["to_route_id"] = "string"
@@ -300,6 +303,9 @@ def main():
 		df = getattr(combined_feed, table_name, None)
 		if df is not None and "feed_id" in df.columns:
 			setattr(combined_feed, table_name, df.drop(columns=["feed_id"]))
+
+	print("\nAdding DSB stay-seated transfers (transfer_type=4):")
+	add_stay_seated_transfers(combined_feed, config.DSB_PAIRS_PATH, config.DSB_TRANSFERS_REPORT_PATH)
 
 	# Strip embedded double-quotes from stop text fields: a doubled-quote CSV escape
 	# (e.g. a literal " inside stop_name) has been observed to confuse OTP's CSV

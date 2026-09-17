@@ -19,6 +19,7 @@ GTFS_YEAR = int(os.environ.get("GTFS_YEAR"))
 GTFS_CLEAN_DATA_ROOT = Path("/home/simpal/O/sharing-trans-data/GTFS Data/CLEAN - GTFS DATA")
 GTFS_SHARE_ROOT = Path("/home/simpal/O/sharing-trans-data/GTFS Data")
 OTP_DATA_ROOT = Path("/home/simpal/trip_choice_pipeline/otp_data")
+DSB_PAIRS_PATH = Path(__file__).parent.parent / "dsb_stay_seated_pairs.csv"  # from dsb_tognummer/build_lookup_table.py
 GTFS_VALIDATOR_JAR = Path(__file__).parent.parent / "gtfs-validator" / "gtfs-validator-7.1.0-cli.jar"
 
 # ---------------------------------------------------------------------------
@@ -32,6 +33,7 @@ TEMP_DIR = OTP_DATA_ROOT / str(GTFS_YEAR) / "tmp"
 OTP_OUTPUT_PATH = OTP_DATA_ROOT / str(GTFS_YEAR) / f"GTFS_{GTFS_YEAR}.zip"
 GTFS_OUTPUT_PATH = GTFS_SHARE_ROOT / f"GTFS_{GTFS_YEAR}.zip"
 VALIDATION_OUTPUT_PATH = OTP_DATA_ROOT / str(GTFS_YEAR) / "validation"
+DSB_TRANSFERS_REPORT_PATH = OTP_DATA_ROOT / str(GTFS_YEAR) / "dsb_transfers_report.csv"
 
 # ---------------------------------------------------------------------------
 # GTFS table names
