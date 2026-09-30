@@ -105,7 +105,14 @@ For a given `GTFS_YEAR`, `src/main.py` runs the following pipeline:
    - `trips`: hash on route/service/direction/shape/content-addressed block_id plus
      an order-sensitive hash of its stop_times.
    - `calendar`: hash each service's weekday pattern together with everything that
-     runs under it, then merge contiguous date ranges sharing that signature.
+     runs under it (each trip's route/direction/shape/stop_times and
+     content-addressed block_id), then merge contiguous date ranges sharing that
+     signature. `block_id` is part of the signature because Rejseplan sometimes
+     publishes the same journey twice in one release, on two services running the
+     same days — one with a block, one without. Without it the two services look
+     identical, so a service from the previous release can be continued into the
+     wrong one, putting its block trip on the same days as the block's own trip
+     (the validator's `block_trips_with_overlapping_stop_times`).
    - `agency`/`routes`: generic dedup directly on identity columns.
 8. **Finalize**: drop the `feed_id` helper column from every table, strip stray
    embedded double-quotes from `stop_name`/`stop_desc` (observed to confuse OTP's
