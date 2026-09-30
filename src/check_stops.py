@@ -5,6 +5,15 @@ def rejseplan_stop_id_base(stop_ids):
 	("...8600669G", "...8600669GG", "...8600053_G_G" -> "...8600669", "...8600053")."""
 	return stop_ids.str.replace(r"(_?G)+$", "", regex=True)
 
+
+def distance_m(lat, lon, lat_other, lon_other):
+	"""Approximate distance in metres (equirectangular; fine at stop-to-stop scale)."""
+	return np.hypot(
+		(lat - lat_other) * 111_320,
+		(lon - lon_other) * 111_320 * np.cos(np.radians(lat)),
+	)
+
+
 def validate_stop_coordinates(feed, file_name):
 	"""
 	GTFS requires stop_lat/stop_lon to be WGS84 decimal degrees. Some DTU releases
@@ -37,10 +46,7 @@ def check_split_stops(stops, max_distance_m=5):
 	]
 	pairs = named.merge(named, on="stop_name", suffixes=("", "_other"))
 	pairs = pairs.loc[(pairs["stop_id"] < pairs["stop_id_other"]) & (pairs["feed_id"] != pairs["feed_id_other"])]
-	dist_m = np.hypot(
-		(pairs["stop_lat"] - pairs["stop_lat_other"]) * 111_320,
-		(pairs["stop_lon"] - pairs["stop_lon_other"]) * 111_320 * np.cos(np.radians(pairs["stop_lat"])),
-	)
+	dist_m = distance_m(pairs["stop_lat"], pairs["stop_lon"], pairs["stop_lat_other"], pairs["stop_lon_other"])
 	pairs = pairs.loc[dist_m < max_distance_m]
 	if pairs.empty:
 		return
