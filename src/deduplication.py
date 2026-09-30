@@ -255,13 +255,10 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         lat_threshold = 0.000898
         lon_threshold = 0.00161
 
-        # Rejseplan sometimes re-emits the exact same physical stop across feed
-        # releases with a different number of trailing "G"s appended to the
-        # stop_id (e.g. "...8600669G" and "...8600669GG" both being "Helsingør
-        # St." at the same coordinates). Group on the G-stripped id so these
-        # collapse into one canonical stop instead of surviving as duplicate
-        # stops with the same name at (near-)identical locations.
-        df_primary["stop_id_base"] = df_primary["stop_id"].str.rstrip("G")
+        # Rejseplan sometimes re-emits the same physical stop with trailing "G"s
+        # appended to the stop_id ("...8600669G", "...8600669GG", "...8600053_G_G").
+        # Group on the G-stripped id so these collapse into one canonical stop.
+        df_primary["stop_id_base"] = rejseplan_stop_id_base(df_primary["stop_id"])
 
         max_lat_delta = (
             df_primary.groupby("stop_id_base", sort=False)["stop_lat"]

@@ -1,5 +1,10 @@
 import numpy as np
 
+def rejseplan_stop_id_base(stop_ids):
+	"""Strip the trailing "G"/"_G" variants Rejseplan appends to re-emitted stop_ids
+	("...8600669G", "...8600669GG", "...8600053_G_G" -> "...8600669", "...8600053")."""
+	return stop_ids.str.replace(r"(_?G)+$", "", regex=True)
+
 def validate_stop_coordinates(feed, file_name):
 	"""
 	GTFS requires stop_lat/stop_lon to be WGS84 decimal degrees. Some DTU releases
@@ -40,8 +45,8 @@ def check_split_stops(stops, max_distance_m=5):
 	if pairs.empty:
 		return
 
-	def rejseplan_id(ids):  # drop the feed prefix and trailing "G"/"_G" variants
-		return ids.str.split("_", n=1).str[1].str.replace(r"(_?G)+$", "", regex=True)
+	def rejseplan_id(ids):  # drop the feed prefix, then the "G" variants
+		return rejseplan_stop_id_base(ids.str.split("_", n=1).str[1])
 
 	def examples(df):
 		return "\n".join(f"  {r.stop_name}: {r.stop_id} / {r.stop_id_other}" for r in df.head(10).itertuples())
