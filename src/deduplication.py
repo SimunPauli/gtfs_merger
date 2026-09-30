@@ -179,8 +179,12 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         df_trips["_stop_times_sig"] = df_trips["trip_id"].map(pattern_st)
         del df_st, pattern_st # save memory
 
+        # block_id included so a service only continues into one running the same blocks
+        service_trip_cols = ["route_id", "direction_id", "shape_id", "_stop_times_sig"]
+        if "block_id" in df_trips.columns:
+            service_trip_cols.append("block_id")
         df_trips['trip_sig'] = pd.util.hash_pandas_object(
-            df_trips[["route_id", "direction_id", "shape_id", "_stop_times_sig"]],
+            df_trips[service_trip_cols],
             index=False
         )
         pattern_trips = (
