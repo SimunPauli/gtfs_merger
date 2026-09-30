@@ -3,6 +3,33 @@ import gtfs_kit as gk
 from typing import List, Tuple, Set
 import warnings
 import numpy as np
+from check_stops import rejseplan_stop_id_base, distance_m
+
+
+def _stop_locations(stops: pd.DataFrame, max_move_m: float) -> pd.Series:
+    """
+    Number each stop row's location within its stop_id_base, in feed order: a row within
+    max_move_m of an earlier location's first row belongs to it, otherwise it starts a new
+    location (the stop moved). Location 0 is where the stop first appears.
+    """
+    ordered = stops.sort_values(["stop_id_base", "feed_id"], kind="stable")
+    first = ordered.groupby("stop_id_base", sort=False)[["stop_lat", "stop_lon"]].transform("first")
+    near_first = distance_m(ordered["stop_lat"], ordered["stop_lon"], first["stop_lat"], first["stop_lon"]) <= max_move_m
+
+    location = pd.Series(0, index=ordered.index)
+    moved_bases = ordered.loc[~near_first, "stop_id_base"].unique()  # usual case: all rows at location 0
+    for _, group in ordered[ordered["stop_id_base"].isin(moved_bases)].groupby("stop_id_base", sort=False):
+        seeds = []  # (lat, lon) of each location's first row
+        for idx, lat, lon in zip(group.index, group["stop_lat"], group["stop_lon"]):
+            for n, (seed_lat, seed_lon) in enumerate(seeds):
+                if distance_m(lat, lon, seed_lat, seed_lon) <= max_move_m:
+                    location[idx] = n
+                    break
+            else:
+                location[idx] = len(seeds)
+                seeds.append((lat, lon))
+    return location.reindex(stops.index)
+
 
 def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identity_cols: List[str],
                      foreign_keys: List[Tuple[str, str]]) -> int:
@@ -250,49 +277,28 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         # coordinate of stops sometimes changes a little bit.
         # I've been told they keep stop_id consistent (!) and only change
         # it when it is moved more than 40 m. The "within 40m=stop_id" is
-        # not consistent. I set it to ~100m in lat/lon tolerance at 56N.
-
-        lat_threshold = 0.000898
-        lon_threshold = 0.00161
+        # not consistent. I set it to 100 m.
+        max_move_m = 100
 
         # Rejseplan sometimes re-emits the same physical stop with trailing "G"s
         # appended to the stop_id ("...8600669G", "...8600669GG", "...8600053_G_G").
         # Group on the G-stripped id so these collapse into one canonical stop.
         df_primary["stop_id_base"] = rejseplan_stop_id_base(df_primary["stop_id"])
 
-        max_lat_delta = (
-            df_primary.groupby("stop_id_base", sort=False)["stop_lat"]
-            .transform(lambda x: (x.mean() - x).abs().max())  # stop distance from average coordinate
-        )
-        max_lon_delta = (
-            df_primary.groupby("stop_id_base", sort=False)["stop_lon"]
-            .transform(lambda x: (x.mean() - x).abs().max())
-        )
-        df_primary["stable_loc"] = (max_lat_delta < lat_threshold) & (
-                    max_lon_delta < lon_threshold)  # ~100m (~141m in diagonal movement) at 56N.
+        # A moved stop keeps its stop_id, so split each stop_id by location: rows of one
+        # location get its mean coordinate and one canonical stop_id below; a location
+        # more than max_move_m away gets its own.
+        df_primary["_location"] = _stop_locations(df_primary, max_move_m)
+        location_keys = ["stop_id_base", "_location"]
+        for col in ["stop_lat", "stop_lon"]:
+            df_primary[col] = df_primary.groupby(location_keys, sort=False)[col].transform("mean")
 
-        stable_means = (
-            df_primary.loc[df_primary["stable_loc"]]
-            .groupby("stop_id_base", as_index=True, sort=False)[["stop_lat", "stop_lon"]]
-            .mean()
-        )
-
-        # write back means only for stable rows
-        stable_mask = df_primary["stable_loc"]
-        df_primary.loc[stable_mask, "stop_lat"] = df_primary.loc[stable_mask, "stop_id_base"].map(stable_means["stop_lat"])
-        df_primary.loc[stable_mask, "stop_lon"] = df_primary.loc[stable_mask, "stop_id_base"].map(stable_means["stop_lon"])
-
-        # warning flags
-        unstable_mask = ~df_primary['stable_loc']
-        if unstable_mask.any():
+        moved = df_primary.loc[df_primary["_location"] > 0, "stop_id"].drop_duplicates()
+        if not moved.empty:
             print(
-                "Warning:", unstable_mask.sum(), "stop_id with max delta lat/lon above 100m threshold:\n",
-                df_primary.loc[unstable_mask, ["stop_id"]].drop_duplicates(),
-                "\nDuplicated stop_id with lat/lon differences > 100m, will get new stop_id."
+                f"Warning: {len(moved)} stop_id(s) moved more than {max_move_m} m between feeds, "
+                f"each new location gets its own stop_id:\n{moved.to_string(index=False)}"
             )
-        df_primary = df_primary.drop(columns=["stable_loc"])
-
-        # drop duplicates with same stop_id/_lat/_lon. lat/lon has been average by stop_id if within 100m. Duplicated stop_id with delta lat/lon, will get new stop_id below.
 
         # prefix needed for non-unique stop_id
         df_primary["stop_id_prefix"] = (
@@ -310,7 +316,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         # above collapse to the same canonical stop.
         df_primary["stop_id_prefix_canonical"] = (
             df_primary
-            .groupby(["stop_id_base", "stop_lat", "stop_lon"], sort=False)["stop_id_prefix"]
+            .groupby(location_keys, sort=False)["stop_id_prefix"]
             .transform("min")
         )
         id_to_canonical = (
@@ -369,7 +375,7 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
             errors="ignore"
         )
         df_primary = df_primary.drop_duplicates(subset=use_identity_cols + ["stop_id"], keep="first")
-        df_primary = df_primary.drop(columns=["stop_id_prefix", "stop_id_prefix_canonical", "stop_id_base"])
+        df_primary = df_primary.drop(columns=["stop_id_prefix", "stop_id_prefix_canonical", "stop_id_base", "_location"])
         setattr(feed, primary_table, df_primary)
 
         final_count = len(df_primary)
