@@ -38,11 +38,11 @@ def check_split_stops(stops, max_distance_m=5):
 	max_distance_m, from different feeds. OTP sees two stops, so the year's service is split
 	between them and a via constraint on one misses the other's trips.
 	Raises if both share a Rejseplan stop_id (a deduplication bug, e.g. "...8600053" vs
-	"...8600053_G_G"); only warns if Rejseplan renumbered the stop, as stop dedup keys on stop_id.
+	"...8600053_G_G"); only warns if the Rejseplan stop_ids differ, as stop dedup keys on stop_id.
 	"""
 	named = stops.loc[
 		stops.duplicated("stop_name", keep=False),
-		["stop_id", "stop_name", "stop_lat", "stop_lon", "feed_id"],
+		["stop_id", "stop_name", "stop_lat", "stop_lon", "feed_id", "feed_id_last"],
 	]
 	pairs = named.merge(named, on="stop_name", suffixes=("", "_other"))
 	pairs = pairs.loc[(pairs["stop_id"] < pairs["stop_id_other"]) & (pairs["feed_id"] != pairs["feed_id_other"])]
@@ -58,12 +58,14 @@ def check_split_stops(stops, max_distance_m=5):
 		return "\n".join(f"  {r.stop_name}: {r.stop_id} / {r.stop_id_other}" for r in df.head(10).itertuples())
 
 	same_id = rejseplan_id(pairs["stop_id"]) == rejseplan_id(pairs["stop_id_other"])
-	renumbered = pairs.loc[~same_id]
-	if not renumbered.empty:
-		print(
-			f"Warning: {len(renumbered)} stop(s) renumbered by Rejseplan in place survive as two stops "
-			f"(same name, <{max_distance_m} m apart), e.g.:\n{examples(renumbered)}"
-		)
+	other_id = pairs.loc[~same_id]
+	if not other_id.empty:
+		# both ids in the same feeds = published side by side; otherwise one replaced the other
+		coexist = (other_id["feed_id"] <= other_id["feed_id_last_other"]) & (other_id["feed_id_other"] <= other_id["feed_id_last"])
+		print(f"Warning: {len(other_id)} stop pair(s) with the same name <{max_distance_m} m apart survive as two stops:")
+		for label, df in [("published side by side", other_id.loc[coexist]), ("renumbered by Rejseplan", other_id.loc[~coexist])]:
+			if not df.empty:
+				print(f" {len(df)} {label}, e.g.:\n{examples(df)}")
 	split = pairs.loc[same_id]
 	if not split.empty:
 		raise ValueError(

@@ -293,11 +293,27 @@ def deduplicate_feed(feed: gk.feed.Feed, id_col: str, primary_table: str, identi
         for col in ["stop_lat", "stop_lon"]:
             df_primary[col] = df_primary.groupby(location_keys, sort=False)[col].transform("mean")
 
-        moved = df_primary.loc[df_primary["_location"] > 0, "stop_id"].drop_duplicates()
+        # last feed of each location, for check_split_stops
+        df_primary["feed_id_last"] = df_primary.groupby(location_keys, sort=False)["feed_id"].transform("max")
+
+        locations = df_primary.groupby(location_keys, as_index=False).agg(
+            stop_name=("stop_name", "first"), stop_lat=("stop_lat", "first"),
+            stop_lon=("stop_lon", "first"), feed_id=("feed_id", "min"),
+        )
+        moved = locations.loc[locations["_location"] > 0].merge(
+            locations.loc[locations["_location"] == 0], on="stop_id_base", suffixes=("", "_first")
+        )
         if not moved.empty:
+            moved["dist_m"] = distance_m(
+                moved["stop_lat"], moved["stop_lon"], moved["stop_lat_first"], moved["stop_lon_first"]
+            )
+            examples = "\n".join(
+                f"  {r.stop_id_base} {r.stop_name}: {r.dist_m:.0f} m, {r.feed_id_first} -> {r.feed_id}"
+                for r in moved.sort_values("dist_m", ascending=False).head(10).itertuples()
+            )
             print(
-                f"Warning: {len(moved)} stop_id(s) moved more than {max_move_m} m between feeds, "
-                f"each new location gets its own stop_id:\n{moved.to_string(index=False)}"
+                f"Warning: {moved['stop_id_base'].nunique()} stop(s) moved more than {max_move_m} m between "
+                f"feeds, each new location gets its own stop_id. Largest moves:\n{examples}"
             )
 
         # prefix needed for non-unique stop_id

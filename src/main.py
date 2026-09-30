@@ -290,7 +290,7 @@ def main():
 	for table_name in GTFS_TABLES:
 		df = getattr(combined_feed, table_name, None)
 		if df is not None and "feed_id" in df.columns:
-			setattr(combined_feed, table_name, df.drop(columns=["feed_id"]))
+			setattr(combined_feed, table_name, df.drop(columns=["feed_id", "feed_id_last"], errors="ignore"))
 
 	print("\nAdding DSB stay-seated transfers (transfer_type=4):")
 	add_stay_seated_transfers(combined_feed, config.DSB_PAIRS_PATH, config.DSB_TRANSFERS_REPORT_PATH)
