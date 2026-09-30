@@ -1,0 +1,62 @@
+import numpy as np
+
+def validate_stop_coordinates(feed, file_name):
+	"""
+	GTFS requires stop_lat/stop_lon to be WGS84 decimal degrees. Some DTU releases
+	have shipped stops in a projected CRS (e.g. UTM32N/ETRS89) instead, which silently
+	produces valid-looking numbers that only fail hours later inside OTP.
+	"""
+	bad = feed.stops.loc[
+		~feed.stops["stop_lat"].between(-90, 90) | ~feed.stops["stop_lon"].between(-180, 180)
+	]
+	if not bad.empty:
+		example = bad.iloc[0]
+		raise ValueError(
+			f"{file_name}: {len(bad)} stop(s) have stop_lat/stop_lon outside the valid "
+			f"WGS84 range (likely a projected CRS, not WGS84 degrees) -- e.g. "
+			f"stop_id={example['stop_id']!r} lat={example['stop_lat']} lon={example['stop_lon']}"
+		)
+
+
+def check_split_stops(stops, max_distance_m=5):
+	"""
+	Find physical stops left under two stop_ids after deduplication: same stop_name, within
+	max_distance_m, from different feeds. OTP sees two stops, so the year's service is split
+	between them and a via constraint on one misses the other's trips.
+	Raises if both share a Rejseplan stop_id (a deduplication bug, e.g. "...8600053" vs
+	"...8600053_G_G"); only warns if Rejseplan renumbered the stop, as stop dedup keys on stop_id.
+	"""
+	named = stops.loc[
+		stops.duplicated("stop_name", keep=False),
+		["stop_id", "stop_name", "stop_lat", "stop_lon", "feed_id"],
+	]
+	pairs = named.merge(named, on="stop_name", suffixes=("", "_other"))
+	pairs = pairs.loc[(pairs["stop_id"] < pairs["stop_id_other"]) & (pairs["feed_id"] != pairs["feed_id_other"])]
+	dist_m = np.hypot(
+		(pairs["stop_lat"] - pairs["stop_lat_other"]) * 111_320,
+		(pairs["stop_lon"] - pairs["stop_lon_other"]) * 111_320 * np.cos(np.radians(pairs["stop_lat"])),
+	)
+	pairs = pairs.loc[dist_m < max_distance_m]
+	if pairs.empty:
+		return
+
+	def rejseplan_id(ids):  # drop the feed prefix and trailing "G"/"_G" variants
+		return ids.str.split("_", n=1).str[1].str.replace(r"(_?G)+$", "", regex=True)
+
+	def examples(df):
+		return "\n".join(f"  {r.stop_name}: {r.stop_id} / {r.stop_id_other}" for r in df.head(10).itertuples())
+
+	same_id = rejseplan_id(pairs["stop_id"]) == rejseplan_id(pairs["stop_id_other"])
+	renumbered = pairs.loc[~same_id]
+	if not renumbered.empty:
+		print(
+			f"Warning: {len(renumbered)} stop(s) renumbered by Rejseplan in place survive as two stops "
+			f"(same name, <{max_distance_m} m apart), e.g.:\n{examples(renumbered)}"
+		)
+	split = pairs.loc[same_id]
+	if not split.empty:
+		raise ValueError(
+			f"{len(split)} stop(s) survived deduplication under two stop_ids despite the same "
+			f"Rejseplan stop_id, name and location (<{max_distance_m} m), e.g.:\n{examples(split)}"
+		)
+

@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import copy
 from pathlib import Path
 import zipfile
@@ -17,6 +18,7 @@ from ID_configuration import ID_CONFIG
 from validate_feeds import validate_feeds_in_dir
 import gtfs_kit as gk
 from gtfs_kit import constants as cs
+from check_stops import validate_stop_coordinates, check_split_stops
 import config
 sys.path.append(str(Path(__file__).parent.parent))  # dsb_tognummer/ lives beside src/
 from dsb_tognummer.gtfs_transfers import add_stay_seated_transfers
@@ -41,23 +43,6 @@ def _ensure_dir(path: Path):
 	except OSError as e:
 		if e.errno != errno.EINVAL or not path.is_dir():
 			raise
-
-def _validate_stop_coordinates(feed, file_name):
-	"""
-	GTFS requires stop_lat/stop_lon to be WGS84 decimal degrees. Some DTU releases
-	have shipped stops in a projected CRS (e.g. UTM32N/ETRS89) instead, which silently
-	produces valid-looking numbers that only fail hours later inside OTP.
-	"""
-	bad = feed.stops.loc[
-		~feed.stops["stop_lat"].between(-90, 90) | ~feed.stops["stop_lon"].between(-180, 180)
-	]
-	if not bad.empty:
-		example = bad.iloc[0]
-		raise ValueError(
-			f"{file_name}: {len(bad)} stop(s) have stop_lat/stop_lon outside the valid "
-			f"WGS84 range (likely a projected CRS, not WGS84 degrees) -- e.g. "
-			f"stop_id={example['stop_id']!r} lat={example['stop_lat']} lon={example['stop_lon']}"
-		)
 
 
 def _feed_earliest_service_date(path):
@@ -162,7 +147,7 @@ def main():
 		feed = normalize_missing_shapes(feed)
 		feed = normalize_timezones(feed)
 		feed = content_address_block_ids(feed)  # before truncation: hash the block as published
-		_validate_stop_coordinates(feed, row["file"])
+		validate_stop_coordinates(feed, row["file"])
 		gtfs_list[row["file"]] = feed
 
 	# Truncating all files
@@ -297,6 +282,9 @@ def main():
 		df = getattr(combined_feed, table, None)
 		if df is not None:
 			print(f"  {table}: {len(df)}")
+
+	print("\nChecking for stops split across feeds:")
+	check_split_stops(combined_feed.stops)
 
 	# Remove feed_id from every table in combined_feed if present
 	for table_name in GTFS_TABLES:
