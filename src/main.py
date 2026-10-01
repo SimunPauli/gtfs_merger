@@ -29,20 +29,6 @@ cs.DTYPES["transfers"]["from_trip_id"] = "string"
 cs.DTYPES["transfers"]["to_trip_id"] = "string"
 cs.DTYPES["transfers"]["min_transfer_time"] = "Int32"
 
-def _ensure_dir(path: Path):
-	"""
-	mkdir that tolerates EINVAL: on network-backed mounts (rclone/cifs-style), a stale
-	VFS cache can make os.path.exists() report a directory missing right before mkdir
-	hits the real backend where it already exists, and the errno that surfaces through
-	the FUSE layer for "already exists" is often EINVAL rather than EEXIST. If mkdir
-	fails with EINVAL by there, treat it as success instead
-	of crashing a multi-hour merge run right at the export step.
-	"""
-	try:
-		path.mkdir(parents=True, exist_ok=True)
-	except OSError as e:
-		if e.errno != errno.EINVAL or not path.is_dir():
-			raise
 # Errnos the O-drive (gvfs SMB mount) returns while its connection is briefly down
 SHARE_RETRY_ERRNOS = {errno.EINVAL, errno.EIO, errno.ENOTCONN, errno.EHOSTDOWN, errno.ETIMEDOUT}
 SHARE_RETRY_ATTEMPTS = 20
@@ -126,8 +112,6 @@ def main():
 	# Of the previous year's releases, keep only the one that's most recently
 	# in effect -- it's the one covering the transition into this year.
 	gtfs_data_root_prev = config.GTFS_DATA_ROOT_PREV
-	if gtfs_data_root_prev.is_dir():
-		gtfs_files_prev = list(gtfs_data_root_prev.rglob("*.zip"))
 	if _retry_share(gtfs_data_root_prev.is_dir):
 		prev_release_dates = {
 			path: _retry_share(_feed_earliest_service_date, path) for path in gtfs_files_prev
