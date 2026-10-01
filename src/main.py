@@ -317,12 +317,12 @@ def main():
 			print(f"    ⚠️  WARNING: {table_name} is empty!")
 
 	print("\nExporting combined GTFS feed to:")
-	print(f"  {gtfs_output_path}")
-	_ensure_dir(gtfs_output_path.parent)
-	combined_feed.to_file(gtfs_output_path)
 	print(f"  {otp_output_path}")
 	_ensure_dir(otp_output_path.parent)
 	combined_feed.to_file(otp_output_path)
+	print(f"  {gtfs_output_path}")
+	_ensure_dir(gtfs_output_path.parent)
+	combined_feed.to_file(gtfs_output_path)
 
 	print("\nExport complete!")
 
