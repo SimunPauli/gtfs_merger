@@ -10,6 +10,8 @@ import errno
 import warnings
 import tempfile
 import sys
+import time
+import shutil
 from missing_shape_file import normalize_missing_shapes
 from normalize_timezones import normalize_timezones
 from content_address_blocks import content_address_block_ids
