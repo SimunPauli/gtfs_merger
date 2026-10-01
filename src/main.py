@@ -50,6 +50,14 @@ def _retry_share(fn, *args, **kwargs):
 			time.sleep(SHARE_RETRY_DELAY_S)
 
 
+def _find_zips(root: Path):
+	"""rglob('*.zip') that raises on unreadable dirs -- rglob silently skips them."""
+	def _raise(e):
+		raise e
+	return [Path(d) / f for d, _, files in os.walk(root, onerror=_raise)
+	        for f in files if f.endswith(".zip")]
+
+
 def _feed_earliest_service_date(path):
 	"""
 	Earliest date this GTFS release actually claims service for, read directly
@@ -115,6 +123,7 @@ def main():
 	# in effect -- it's the one covering the transition into this year.
 	gtfs_data_root_prev = config.GTFS_DATA_ROOT_PREV
 	if _retry_share(gtfs_data_root_prev.is_dir):
+		gtfs_files_prev = _retry_share(_find_zips, gtfs_data_root_prev)
 		prev_release_dates = {
 			path: _retry_share(_feed_earliest_service_date, path) for path in gtfs_files_prev
 		}
