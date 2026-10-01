@@ -43,6 +43,23 @@ def _ensure_dir(path: Path):
 	except OSError as e:
 		if e.errno != errno.EINVAL or not path.is_dir():
 			raise
+# Errnos the O-drive (gvfs SMB mount) returns while its connection is briefly down
+SHARE_RETRY_ERRNOS = {errno.EINVAL, errno.EIO, errno.ENOTCONN, errno.EHOSTDOWN, errno.ETIMEDOUT}
+SHARE_RETRY_ATTEMPTS = 20
+SHARE_RETRY_DELAY_S = 30
+
+
+def _retry_share(fn, *args, **kwargs):
+	"""Call fn, retrying (~10 min total) while the O-drive share is unreachable."""
+	for attempt in range(1, SHARE_RETRY_ATTEMPTS + 1):
+		try:
+			return fn(*args, **kwargs)
+		except OSError as e:
+			if e.errno not in SHARE_RETRY_ERRNOS or attempt == SHARE_RETRY_ATTEMPTS:
+				raise
+			print(f"  Share unreachable ({e}); retry {attempt}/{SHARE_RETRY_ATTEMPTS - 1} "
+			      f"in {SHARE_RETRY_DELAY_S}s")
+			time.sleep(SHARE_RETRY_DELAY_S)
 
 
 def _feed_earliest_service_date(path):
@@ -91,11 +108,11 @@ def main():
 	gtfs_data_root = config.GTFS_DATA_ROOT
 	otp_output_path = config.OTP_OUTPUT_PATH
 	gtfs_output_path = config.GTFS_OUTPUT_PATH
-	if not gtfs_data_root.is_dir():
+	if not _retry_share(gtfs_data_root.is_dir):
 		print("INPUT ERROR: Directory not found: " + str(gtfs_data_root))
 
 	# Recursively find zip files
-	gtfs_files = list(gtfs_data_root.rglob("*.zip"))
+	gtfs_files = _retry_share(_find_zips, gtfs_data_root)
 
 	# Peek each candidate's own calendar.txt/calendar_dates.txt to rank
 	# releases by the date they actually take effect (see
@@ -103,7 +120,7 @@ def main():
 	# the full feed), so it's fine to do for every candidate up front, before
 	# deciding which ones are worth fully loading.
 	release_dates = {
-		path: _feed_earliest_service_date(path) for path in gtfs_files
+		path: _retry_share(_feed_earliest_service_date, path) for path in gtfs_files
 	}
 
 	# Of the previous year's releases, keep only the one that's most recently
@@ -111,8 +128,9 @@ def main():
 	gtfs_data_root_prev = config.GTFS_DATA_ROOT_PREV
 	if gtfs_data_root_prev.is_dir():
 		gtfs_files_prev = list(gtfs_data_root_prev.rglob("*.zip"))
+	if _retry_share(gtfs_data_root_prev.is_dir):
 		prev_release_dates = {
-			path: _feed_earliest_service_date(path) for path in gtfs_files_prev
+			path: _retry_share(_feed_earliest_service_date, path) for path in gtfs_files_prev
 		}
 		prev_release_dates = {p: d for p, d in prev_release_dates.items() if d is not None}
 		if prev_release_dates:
@@ -143,7 +161,7 @@ def main():
 	gtfs_list = {}
 	for _, row in gtfs_release.iterrows():
 		print(f"Reading GTFS file: {row['file']}")
-		feed = gk.feed.read_feed(row["path"], dist_units="m") # import feed
+		feed = _retry_share(gk.feed.read_feed, row["path"], dist_units="m") # import feed
 		feed = normalize_missing_shapes(feed)
 		feed = normalize_timezones(feed)
 		feed = content_address_block_ids(feed)  # before truncation: hash the block as published
@@ -318,11 +336,12 @@ def main():
 
 	print("\nExporting combined GTFS feed to:")
 	print(f"  {otp_output_path}")
-	_ensure_dir(otp_output_path.parent)
+	otp_output_path.parent.mkdir(parents=True, exist_ok=True)
 	combined_feed.to_file(otp_output_path)
 	print(f"  {gtfs_output_path}")
-	_ensure_dir(gtfs_output_path.parent)
-	combined_feed.to_file(gtfs_output_path)
+	# Copy the finished local zip to the share, so a retry doesn't re-serialize the feed
+	_retry_share(gtfs_output_path.parent.mkdir, parents=True, exist_ok=True)
+	_retry_share(shutil.copyfile, otp_output_path, gtfs_output_path)
 
 	print("\nExport complete!")
 
