@@ -39,16 +39,16 @@ python src/main.py
 Unlike `tu_reconstruct_trips`, there is no `config.json` — everything is edited
 directly in `src/config.py`. The two things that normally need changing:
 
-- `GTFS_YEAR` — the year to build the combined feed for. Read from the `GTFS_YEAR`
-  environment variable if set, otherwise defaults to `2022` in the file itself.
+- `GTFS_YEAR` — the year to build the combined feed for. Read from the required `GTFS_YEAR`
+  environment variable (no default; running without it raises a `TypeError` at import).
 - The `*_ROOT` base directories — edit these if the raw-data mount points or output
   folder layout change:
   - `GTFS_CLEAN_DATA_ROOT` — where raw per-year Rejseplan release zips live
     (`GTFS_CLEAN_DATA_ROOT/<year>/*.zip`, searched recursively)
   - `GTFS_SHARE_ROOT` — where the merged feed is written for general sharing
-  - `OTP_DATA_ROOT` — the `otp_data/` working-directory tree; the merged feed is
-    also written here, at `OTP_DATA_ROOT/<year>/GTFS_<year>.zip`, which is what
-    OTP's `build-config.json` consumes
+  - `OTP_DATA_ROOT` — the repo's `otp_data/` working-directory tree, located relative
+    to `config.py` (no editing needed); the merged feed is also written here, at
+    `OTP_DATA_ROOT/<year>/GTFS_<year>.zip`, which is what OTP's `build-config.json` consumes
   - `GTFS_VALIDATOR_JAR` — path to the GTFS Validator CLI jar (bundled under
     `gtfs-validator/`)
 - `DSB_PAIRS_PATH` — the DSB stay-seated pairs table (`gtfs_merger/dsb_stay_seated_pairs.csv`),
