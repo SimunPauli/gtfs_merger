@@ -127,8 +127,8 @@ def _trip_stations(feed, trip_ids):
         stations[trip_id] = {
             "first": g.stop_name.iloc[0],
             "last": g.stop_name.iloc[-1],
-            "arr": dict(zip(g.stop_name, zip(g.arr, g.stop_id))),
-            "dep": dict(zip(g.stop_name, zip(g.dep, g.stop_id))),
+            "arr": dict(zip(g.stop_name.iloc[1:], zip(g.arr.iloc[1:], g.stop_id.iloc[1:]))),
+            "dep": dict(zip(g.stop_name.iloc[:-1], zip(g.dep.iloc[:-1], g.stop_id.iloc[:-1]))),
         }
     return stations
 
