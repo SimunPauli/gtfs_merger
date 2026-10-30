@@ -73,7 +73,10 @@ For a given `GTFS_YEAR`, `src/main.py` runs the following pipeline:
    effective date.
 2. **Read and normalize each feed** (via `gtfs_kit`): fill in a uniform empty
    `shapes.txt` for feeds that ship none, collapse the various IANA names agencies
-   use for Central European Time down to `Europe/Copenhagen`, and content-address
+   use for Central European Time down to `Europe/Copenhagen`, re-type rail
+   replacement buses that some releases (e.g. 2018–2019) type as rail to bus
+   (`route_type` 3), recognized by `route_short_name` (`Togbus`, `BUS`, colour
+   lines such as `Rød`/`BLÅ`), and content-address
    `block_id` — Rejseplan renumbers blocks in every release, so blocks are re-keyed
    by a hash of the trips they contain, which lets an unchanged block dedupe
    correctly across releases later. Also validates that every feed's stop
@@ -81,7 +84,10 @@ For a given `GTFS_YEAR`, `src/main.py` runs the following pipeline:
    projected CRS).
 3. **Truncate each feed twice:** first to end the day before the *next* release
    takes effect (so overlapping releases don't describe the same day twice), then
-   to `GTFS_YEAR`'s calendar bounds.
+   to `GTFS_YEAR`'s calendar bounds. Truncation never extends a release, so a
+   release ending before the next one starts, or a year the releases don't fully
+   cover, leaves dates without service; these are printed as a warning (the run
+   continues).
 4. **Concatenate** all feeds' tables into one combined feed, tagging every row with
    a `feed_id` column.
 5. **Resolve and drop parent stations.** `transfers.txt` rows that reference a
@@ -226,10 +232,11 @@ under different numbers in GTFS.
 | `src/ID_configuration.py` | `ID_CONFIG` — per-table ID column, identity columns, and foreign keys, used by both prefixing and deduplication |
 | `src/prefix_ids.py` | Prefixes cross-feed ID collisions with the owning feed's name |
 | `src/deduplication.py` | Collapses same-entity rows across feeds; table-specific logic per above |
-| `src/truncate_calendar_date.py` | Truncates a feed to a single date or date range |
+| `src/truncate_calendar_date.py` | Truncates a feed to a single date or date range; reports dates with no service |
 | `src/content_address_blocks.py` | Re-keys `block_id` by content hash; drops `block_id` from impossible (self-overlapping) blocks |
 | `src/missing_shape_file.py` | Normalizes feeds that ship no `shapes.txt` |
 | `src/normalize_timezones.py` | Collapses CET timezone-name aliases to `Europe/Copenhagen` |
+| `src/normalize_route_types.py` | Re-types rail replacement buses typed as rail to bus, by `route_short_name` |
 | `src/validate_feeds.py` | Wraps the GTFS Validator CLI jar; used both standalone and at the end of `main.py` |
 | `dsb_tognummer/` | Sibling to `src/`: parses DSB's Tognummer timetable PDFs into stay-seated tognummer pairs (`build_lookup_table.py`, run by hand), and writes them as `transfer_type=4` rows into the merged feed (`gtfs_transfers.py`, called from `main.py`); see [DSB stay-seated transfers](#dsb-stay-seated-transfers). PDF parsing is exercised by `test_pdfplumber_tognummer.ipynb` |
 

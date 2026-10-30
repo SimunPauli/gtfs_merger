@@ -14,6 +14,7 @@ import time
 import shutil
 from missing_shape_file import normalize_missing_shapes
 from normalize_timezones import normalize_timezones
+from normalize_route_types import normalize_route_types
 from content_address_blocks import content_address_block_ids
 from prefix_ids import apply_prefix_to_all_ids
 from ID_configuration import ID_CONFIG
@@ -159,12 +160,13 @@ def main():
 		feed = _retry_share(gk.feed.read_feed, row["path"], dist_units="m") # import feed
 		feed = normalize_missing_shapes(feed)
 		feed = normalize_timezones(feed)
+		feed = normalize_route_types(feed)
 		feed = content_address_block_ids(feed)  # before truncation: hash the block as published
 		validate_stop_coordinates(feed, row["file"])
 		gtfs_list[row["file"]] = feed
 
 	# Truncating all files
-	from truncate_calendar_date import truncate_feed_to_date, truncate_feed_to_date_range
+	from truncate_calendar_date import truncate_feed_to_date, truncate_feed_to_date_range, report_uncovered_dates
 
 	print("\nTruncating all feeds to the date before the next release actually takes effect:")
 	for i, row in gtfs_release.iterrows():
@@ -186,6 +188,9 @@ def main():
 	        year_start,
 	        year_end
 	    )
+
+	print(f"\nChecking service coverage of {GTFS_YEAR}:")
+	report_uncovered_dates(gtfs_list.values(), year_start, year_end)
 
 	# Merge all separate feeds into one
 	print("\nMerging all feeds into combined GTFS feed...")
